@@ -1,8 +1,5 @@
 # Traffic Congestion Classification from Intersection Footage
 
-**UTS 42028 Deep Learning and CNN — Assessment 3**
-**Team: Road Rangers**
-
 Visual traffic congestion classification from drone intersection footage, with a rule-based signal timing recommendation prototype. Three congestion levels are predicted — **Low**, **Medium**, and **High** — using CNN-based image classifiers trained on the Waterloo Multi-Agent Traffic Dataset.
 
 ---
