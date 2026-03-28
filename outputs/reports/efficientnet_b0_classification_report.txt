@@ -1,0 +1,11 @@
+Model: efficientnet_b0
+
+              precision    recall  f1-score   support
+
+         low     0.5714    0.6000    0.5854        60
+      medium     0.7969    0.7846    0.7907       195
+        high     0.8387    0.8387    0.8387        93
+
+    accuracy                         0.7672       348
+   macro avg     0.7357    0.7411    0.7383       348
+weighted avg     0.7692    0.7672    0.7681       348

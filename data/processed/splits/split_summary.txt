@@ -1,0 +1,21 @@
+Split Summary
+========================================
+Strategy:      window-level stratified (all pairs combined)
+Total samples: 2296
+Total windows: 769
+Pairs:         14
+
+TRAIN (1605 samples, 538 windows):
+  low     :  280  (17.4%)
+  medium  :  902  (56.2%)
+  high    :  423  (26.4%)
+
+VAL (343 samples, 115 windows):
+  low     :   58  (16.9%)
+  medium  :  195  (56.9%)
+  high    :   90  (26.2%)
+
+TEST (348 samples, 116 windows):
+  low     :   60  (17.2%)
+  medium  :  195  (56.0%)
+  high    :   93  (26.7%)

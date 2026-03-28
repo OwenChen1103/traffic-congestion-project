@@ -1,0 +1,151 @@
+# ============================================================
+# Project Configuration
+# ============================================================
+
+project:
+  name: traffic-congestion-classification
+  team: road-rangers
+  seed: 42
+
+# ============================================================
+# Paths (relative to project root)
+# ============================================================
+paths:
+  raw_data: data/raw                          # root containing pair subdirs (data/raw/771/, etc.)
+  interim: data/interim
+  processed: data/processed
+  frames_root: data/processed/frames          # frames stored under {frames_root}/{pair_id}/
+  splits: data/processed/splits
+  per_pair_labels: data/labels/per_pair       # per-pair CSVs: {pair_id}_window_labels_v1.csv
+  labels: data/labels                         # combined/merged output CSVs
+  outputs: outputs
+  checkpoints: outputs/checkpoints
+  figures: outputs/figures
+  logs: outputs/logs
+  reports: outputs/reports
+
+# ============================================================
+# Pairs
+# ============================================================
+pairs:
+  # 'all'  → process every valid pair discovered in data/raw/
+  # list   → process only these pair IDs, e.g. [769, 771, 775]
+  include: all
+
+  # Vehicle type strings — exact case as stored in TRACKS.type
+  # Confirmed from pair 771; expected to be consistent across all pairs
+  vehicle_classes:
+    - Car
+    - Bus
+    - Heavy Vehicle
+    - Medium Vehicle
+    - Motorcycle
+  exclude_classes:
+    - Pedestrian
+    - Bicycle
+
+# ============================================================
+# Labeling (v1)
+# ============================================================
+labeling:
+  version: v1
+  window_seconds: 5           # 5s windows per pair
+  stop_speed_threshold: 0.5   # m/s — below this = stopped/waiting for stop_proxy
+
+  # Per-pair outputs (paths derived in code as {per_pair_labels}/{pair_id}_*.csv)
+
+  # Combined outputs (written by process_pairs.py after all pairs processed)
+  window_labels_all_csv: data/labels/window_labels_v1_all.csv
+  samples_metadata_all_csv: data/labels/samples_metadata_v1_all.csv
+  samples_split_all_csv: data/labels/samples_split_v1_all.csv
+
+  # Composite score weights
+  # score = w_count*norm_count + w_speed*(1-norm_speed) + w_stop*stop_proxy
+  # Normalisation is percentile-based (5th-95th) per pair
+  weights:
+    count: 0.4
+    speed: 0.4
+    stop: 0.2
+
+  # Score thresholds for 3-class labeling
+  score_thresholds:
+    low_max: 0.33
+    high_min: 0.67
+
+# ============================================================
+# Frame Extraction
+# ============================================================
+frame_extraction:
+  strategy: multi              # 'middle' | 'random' | 'multi'
+  frames_per_window: 3         # 3 evenly-spaced frames per 5s window
+  image_size: [224, 224]       # (H, W) — matches ImageNet pretrained input
+
+# ============================================================
+# Data Split
+# ============================================================
+split:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  # Window-level stratified split across ALL pairs combined.
+  # All frames from the same window stay in the same split.
+  # Temporal split is NOT used: congestion drifts within recordings,
+  # causing entire classes to be absent from val/test.
+  output_dir: data/processed/splits
+
+# ============================================================
+# Training
+# ============================================================
+training:
+  batch_size: 16               # will increase naturally as dataset grows with more pairs
+  num_workers: 0               # 0 = safe on macOS Python 3.9
+  epochs: 50
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  scheduler: cosine            # 'cosine' | 'step' | 'none'
+
+  augmentation:
+    random_horizontal_flip: true
+    random_rotation_degrees: 10
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.1
+
+# ============================================================
+# Models
+# ============================================================
+models:
+  num_classes: 3
+  class_names: [low, medium, high]
+
+  baseline_cnn:
+    name: baseline_cnn
+    input_channels: 3
+
+  mobilenet_v2:
+    name: mobilenet_v2
+    pretrained: true
+    freeze_backbone: false
+
+  resnet50:
+    name: resnet50
+    pretrained: true
+    freeze_backbone: false
+
+  efficientnet_b0:
+    name: efficientnet_b0
+    pretrained: true
+    freeze_backbone: false
+
+# ============================================================
+# Evaluation
+# ============================================================
+evaluation:
+  metrics:
+    - accuracy
+    - precision_macro
+    - recall_macro
+    - f1_macro
+  save_confusion_matrix: true
+  save_classification_report: true
