@@ -46,6 +46,7 @@ MODEL_DISPLAY = {
     "mobilenet_v2":    "MobileNetV2 ★",
     "resnet50":        "ResNet-50",
     "efficientnet_b0": "EfficientNet-B0",
+    "ensemble_tta":    "Ensemble + TTA ⚡",
 }
 
 MODEL_PARAMS = {
@@ -53,6 +54,7 @@ MODEL_PARAMS = {
     "mobilenet_v2":    "2.2M",
     "resnet50":        "23.5M",
     "efficientnet_b0": "4.0M",
+    "ensemble_tta":    "4 models",
 }
 
 TEST_RESULTS = {
@@ -60,6 +62,7 @@ TEST_RESULTS = {
     "mobilenet_v2":    {"test_acc": 0.7874, "macro_f1": 0.7659, "low_f1": 0.650, "med_f1": 0.800, "high_f1": 0.847},
     "resnet50":        {"test_acc": 0.7615, "macro_f1": 0.7380, "low_f1": 0.598, "med_f1": 0.774, "high_f1": 0.842},
     "efficientnet_b0": {"test_acc": 0.7759, "macro_f1": 0.7503, "low_f1": 0.580, "med_f1": 0.793, "high_f1": 0.878},
+    "ensemble_tta":    {"test_acc": 0.8218, "macro_f1": 0.7992, "low_f1": 0.667, "med_f1": 0.839, "high_f1": 0.893},
 }
 
 SIGNAL_RULES = {
@@ -254,13 +257,48 @@ def overlay_cam(pil_img, cam):
 
 # ── Inference ──────────────────────────────────────────────────────────────────
 
+def run_ensemble_tta(image_pil, models, image_size):
+    # type: (Image.Image, Dict, tuple) -> np.ndarray
+    """Average softmax probs across all models × 5 TTA transforms."""
+    from src.datasets.congestion_dataset import get_tta_transforms
+    tta_tfms = get_tta_transforms(image_size)
+    all_probs = []
+    for model in models.values():
+        for tfm in tta_tfms:
+            tensor = tfm(image_pil).unsqueeze(0)
+            with torch.no_grad():
+                p = torch.softmax(model(tensor), dim=1).squeeze(0).numpy()
+            all_probs.append(p)
+    return np.mean(all_probs, axis=0)
+
+
 def run_inference(image_pil, model_name, models, gradcams, transform):
     # type: (Image.Image, str, Dict, Dict, transforms.Compose) -> Tuple
-    if image_pil is None or model_name not in models:
+    if image_pil is None:
         return None, None, None
     image_pil = image_pil.convert("RGB")
-    tensor    = transform(image_pil).unsqueeze(0)
 
+    # Ensemble + TTA mode
+    if model_name == "ensemble_tta":
+        size = tuple(CFG["frame_extraction"]["image_size"])
+        probs = run_ensemble_tta(image_pil, models, size)
+        idx   = int(np.argmax(probs))
+        label = CLASS_NAMES[idx]
+        # GradCAM on best single model (mobilenet_v2) for visualisation
+        cam_img = None
+        best = "mobilenet_v2" if "mobilenet_v2" in models else list(models.keys())[0]
+        try:
+            t2  = transform(image_pil).unsqueeze(0)
+            cam = gradcams[best].generate(t2, idx)
+            cam_img = overlay_cam(image_pil, cam)
+        except Exception:
+            pass
+        return label, probs, cam_img
+
+    if model_name not in models:
+        return None, None, None
+
+    tensor = transform(image_pil).unsqueeze(0)
     with torch.no_grad():
         probs = torch.softmax(models[model_name](tensor), dim=1).squeeze(0).numpy()
 
@@ -488,8 +526,8 @@ def dataset_html():
         </div>""".format(color=color, val=val, label=label, sub=sub)
 
     rows = ""
-    best = "mobilenet_v2"
-    for name in ["baseline_cnn", "mobilenet_v2", "resnet50", "efficientnet_b0"]:
+    best = "ensemble_tta"
+    for name in ["baseline_cnn", "mobilenet_v2", "resnet50", "efficientnet_b0", "ensemble_tta"]:
         r = TEST_RESULTS[name]
         highlight = "background:#1c2128;" if name == best else ""
         star      = " ★" if name == best else ""
@@ -595,6 +633,9 @@ def build_app():
         raise RuntimeError("No model checkpoints found. Run training first.")
 
     default_model = "mobilenet_v2" if "mobilenet_v2" in available else available[0]
+    # Ensemble+TTA always available if at least one model loaded
+    dropdown_choices = [(MODEL_DISPLAY[n], n) for n in available] + \
+                       [("Ensemble + TTA ⚡", "ensemble_tta")]
 
     # ── Dataset index for browsing ──
     import pandas as pd
@@ -674,7 +715,7 @@ def build_app():
                     with gr.Column(scale=1):
                         img_input  = gr.Image(type="pil", label="Intersection Frame")
                         model_drop = gr.Dropdown(
-                            choices=[(MODEL_DISPLAY[n], n) for n in available],
+                            choices=dropdown_choices,
                             value=default_model,
                             label="Model",
                         )

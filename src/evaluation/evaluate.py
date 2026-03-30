@@ -1,12 +1,14 @@
 """
 evaluate.py
 -----------
-Evaluates a trained model on the test set.
-Saves confusion matrix plot and classification report.
+Evaluates trained models on the test set.
+Supports single-model, ensemble, TTA, and ensemble+TTA modes.
 
 Usage:
-    python src/evaluation/evaluate.py --model baseline_cnn
     python src/evaluation/evaluate.py --model mobilenet_v2
+    python src/evaluation/evaluate.py --model mobilenet_v2 --tta
+    python src/evaluation/evaluate.py --ensemble
+    python src/evaluation/evaluate.py --ensemble --tta
 """
 
 import argparse
@@ -18,34 +20,27 @@ import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.metrics import (
+    ConfusionMatrixDisplay,
     classification_report,
     confusion_matrix,
-    ConfusionMatrixDisplay,
 )
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.config.settings import CFG, PROJECT_ROOT
-from src.datasets.congestion_dataset import CongestionDataset, get_eval_transforms
+from src.datasets.congestion_dataset import (
+    CongestionDataset,
+    get_eval_transforms,
+    get_tta_transforms,
+)
 from src.models.baseline_cnn import BaselineCNN
 from src.models.transfer_models import build_model
 
-
-def load_checkpoint(model_name: str) -> dict:
-    ckpt_dir = PROJECT_ROOT / CFG["paths"]["checkpoints"]
-    ckpt_path = ckpt_dir / f"{model_name}_best.pt"
-    if not ckpt_path.exists():
-        raise FileNotFoundError(f"No checkpoint found at {ckpt_path}")
-    return torch.load(ckpt_path, map_location="cpu")
+ALL_MODELS = ["baseline_cnn", "mobilenet_v2", "resnet50", "efficientnet_b0"]
 
 
-def get_model(name: str, num_classes: int) -> nn.Module:
-    if name == "baseline_cnn":
-        return BaselineCNN(num_classes=num_classes)
-    return build_model(name, num_classes=num_classes, pretrained=False)
-
-
-def get_device() -> torch.device:
+def get_device():
+    # type: () -> torch.device
     if torch.cuda.is_available():
         return torch.device("cuda")
     if torch.backends.mps.is_available():
@@ -53,90 +48,164 @@ def get_device() -> torch.device:
     return torch.device("cpu")
 
 
-def main(model_name: str):
-    print("=" * 60)
-    print("evaluate.py — model: {}".format(model_name))
-    print("=" * 60)
-
-    cfg_model = CFG["models"]
-    splits_dir = PROJECT_ROOT / CFG["split"]["output_dir"]
-    image_size = tuple(CFG["frame_extraction"]["image_size"])
-    class_names = cfg_model["class_names"]
-    num_classes = cfg_model["num_classes"]
-
-    device = get_device()
-
-    # Load model
-    ckpt = load_checkpoint(model_name)
-    model = get_model(model_name, num_classes)
+def load_model(model_name, num_classes, device):
+    # type: (str, int, torch.device) -> nn.Module
+    ckpt_path = PROJECT_ROOT / CFG["paths"]["checkpoints"] / "{}_best.pt".format(model_name)
+    if not ckpt_path.exists():
+        raise FileNotFoundError("No checkpoint: {}".format(ckpt_path))
+    if model_name == "baseline_cnn":
+        model = BaselineCNN(num_classes=num_classes)
+    else:
+        model = build_model(model_name, num_classes=num_classes, pretrained=False)
+    ckpt = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(ckpt["model_state_dict"])
     model.to(device)
     model.eval()
-    print("[Checkpoint] Loaded epoch {}  val_acc={:.4f}".format(ckpt["epoch"], ckpt["val_acc"]))
+    print("[Loaded] {}  (epoch {}, val_acc={:.4f})".format(
+        model_name, ckpt["epoch"], ckpt["val_acc"]))
+    return model
 
-    # Test dataset
-    test_ds = CongestionDataset(
-        splits_dir / "test.csv", PROJECT_ROOT, get_eval_transforms(image_size)
-    )
-    test_loader = DataLoader(
-        test_ds, batch_size=CFG["training"]["batch_size"],
-        shuffle=False, num_workers=0,  # 0 = safe on macOS Python 3.9
-    )
 
-    # Inference
-    all_preds, all_labels = [], []
+def predict_probs(model, loader, device):
+    # type: (nn.Module, DataLoader, torch.device) -> np.ndarray
+    """Returns softmax probabilities, shape (N, num_classes)."""
+    all_probs = []
     with torch.no_grad():
-        for images, labels in test_loader:
+        for images, _ in loader:
             images = images.to(device)
-            logits = model(images)
-            preds = logits.argmax(dim=1).cpu().numpy()
-            all_preds.extend(preds)
-            all_labels.extend(labels.numpy())
+            probs = torch.softmax(model(images), dim=1).cpu().numpy()
+            all_probs.append(probs)
+    return np.concatenate(all_probs, axis=0)
 
-    all_preds = np.array(all_preds)
-    all_labels = np.array(all_labels)
 
-    # Metrics
-    report = classification_report(
-        all_labels, all_preds, target_names=class_names, digits=4
-    )
+def predict_probs_tta(model, csv_path, image_size, device):
+    # type: (nn.Module, Path, tuple, torch.device) -> np.ndarray
+    """Runs TTA: average probabilities over 5 augmented versions."""
+    tta_tfms = get_tta_transforms(image_size)
+    batch_size = CFG["training"]["batch_size"]
+    all_probs = []
+    for tfm in tta_tfms:
+        ds = CongestionDataset(csv_path, PROJECT_ROOT, tfm)
+        loader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=0)
+        all_probs.append(predict_probs(model, loader, device))
+    return np.mean(all_probs, axis=0)  # average across 5 transforms
+
+
+def get_labels(csv_path, image_size):
+    # type: (Path, tuple) -> np.ndarray
+    ds = CongestionDataset(csv_path, PROJECT_ROOT, get_eval_transforms(image_size))
+    return np.array([ds[i][1] for i in range(len(ds))])
+
+
+def save_results(label, all_preds, all_labels, class_names):
+    # type: (str, np.ndarray, np.ndarray, list) -> None
+    reports_dir = PROJECT_ROOT / CFG["paths"]["reports"]
+    figs_dir    = PROJECT_ROOT / CFG["paths"]["figures"]
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    figs_dir.mkdir(parents=True, exist_ok=True)
+
+    report = classification_report(all_labels, all_preds, target_names=class_names, digits=4)
     print("\nClassification Report:")
     print(report)
 
-    # Save report
-    reports_dir = PROJECT_ROOT / CFG["paths"]["reports"]
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    report_path = reports_dir / "{}_classification_report.txt".format(model_name)
-    report_path.write_text("Model: {}\n\n{}".format(model_name, report))
-    print("[OK] Classification report saved: {}".format(report_path))
+    report_path = reports_dir / "{}_classification_report.txt".format(label)
+    report_path.write_text("Mode: {}\n\n{}".format(label, report))
+    print("[OK] Report saved: {}".format(report_path))
 
-    # Confusion matrix
     cm = confusion_matrix(all_labels, all_preds)
     fig, ax = plt.subplots(figsize=(6, 5))
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
-    disp.plot(ax=ax, colorbar=True, cmap="Blues")
-    ax.set_title("Confusion Matrix — {}".format(model_name))
+    ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names).plot(
+        ax=ax, colorbar=True, cmap="Blues")
+    ax.set_title("Confusion Matrix — {}".format(label))
     plt.tight_layout()
-
-    figs_dir = PROJECT_ROOT / CFG["paths"]["figures"]
-    figs_dir.mkdir(parents=True, exist_ok=True)
-    cm_path = figs_dir / "{}_confusion_matrix.png".format(model_name)
+    cm_path = figs_dir / "{}_confusion_matrix.png".format(label)
     fig.savefig(cm_path, dpi=150)
     plt.close()
     print("[OK] Confusion matrix saved: {}".format(cm_path))
 
-    # Overall accuracy
     accuracy = (all_preds == all_labels).mean()
     print("\nTest Accuracy: {:.4f}".format(accuracy))
 
 
+def main(model_name, use_ensemble, use_tta):
+    # type: (str, bool, bool) -> None
+    print("=" * 60)
+    mode_str = []
+    if use_ensemble: mode_str.append("ensemble")
+    elif model_name:  mode_str.append(model_name)
+    if use_tta:      mode_str.append("tta")
+    print("evaluate.py — mode: {}".format(" + ".join(mode_str) if mode_str else model_name))
+    print("=" * 60)
+
+    cfg_model   = CFG["models"]
+    splits_dir  = PROJECT_ROOT / CFG["split"]["output_dir"]
+    image_size  = tuple(CFG["frame_extraction"]["image_size"])
+    class_names = cfg_model["class_names"]
+    num_classes = cfg_model["num_classes"]
+    device      = get_device()
+    test_csv    = splits_dir / "test.csv"
+
+    all_labels = get_labels(test_csv, image_size)
+
+    if use_ensemble:
+        # Load all available models
+        models_to_use = []
+        for name in ALL_MODELS:
+            try:
+                models_to_use.append((name, load_model(name, num_classes, device)))
+            except FileNotFoundError:
+                print("[SKIP] {} — no checkpoint".format(name))
+
+        if not models_to_use:
+            raise RuntimeError("No checkpoints found.")
+
+        # Gather probabilities from each model
+        model_probs = []
+        for name, model in models_to_use:
+            if use_tta:
+                print("[TTA] Running {} × 5 transforms...".format(name))
+                probs = predict_probs_tta(model, test_csv, image_size, device)
+            else:
+                ds = CongestionDataset(test_csv, PROJECT_ROOT, get_eval_transforms(image_size))
+                loader = DataLoader(ds, batch_size=CFG["training"]["batch_size"],
+                                    shuffle=False, num_workers=0)
+                probs = predict_probs(model, loader, device)
+            model_probs.append(probs)
+
+        avg_probs = np.mean(model_probs, axis=0)
+        all_preds = avg_probs.argmax(axis=1)
+        label = "ensemble_tta" if use_tta else "ensemble"
+
+    else:
+        # Single model
+        model = load_model(model_name, num_classes, device)
+        if use_tta:
+            print("[TTA] Running {} × 5 transforms...".format(model_name))
+            avg_probs = predict_probs_tta(model, test_csv, image_size, device)
+        else:
+            ds = CongestionDataset(test_csv, PROJECT_ROOT, get_eval_transforms(image_size))
+            loader = DataLoader(ds, batch_size=CFG["training"]["batch_size"],
+                                shuffle=False, num_workers=0)
+            avg_probs = predict_probs(model, loader, device)
+
+        all_preds = avg_probs.argmax(axis=1)
+        label = "{}_tta".format(model_name) if use_tta else model_name
+
+    save_results(label, all_preds, all_labels, class_names)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="baseline_cnn",
-        choices=["baseline_cnn", "mobilenet_v2", "resnet50", "efficientnet_b0"],
-    )
+    parser.add_argument("--model", type=str, default=None,
+                        choices=ALL_MODELS,
+                        help="Single model to evaluate (ignored if --ensemble)")
+    parser.add_argument("--ensemble", action="store_true",
+                        help="Average predictions from all 4 models")
+    parser.add_argument("--tta", action="store_true",
+                        help="Apply test-time augmentation (5 variants, averaged)")
     args = parser.parse_args()
-    main(args.model)
+
+    if not args.ensemble and args.model is None:
+        parser.error("Provide --model <name> or --ensemble")
+
+    main(args.model, args.ensemble, args.tta)
