@@ -15,7 +15,8 @@
 8. [Experiment 2 — Retrain on Clean Frames (Final Results)](#8-experiment-2--retrain-on-clean-frames-final-results)
 9. [Model Comparison: Before vs After Overlay Removal](#9-model-comparison-before-vs-after-overlay-removal)
 10. [Experiment 3 — Ensemble + Test-Time Augmentation](#10-experiment-3--ensemble--test-time-augmentation-no-retraining)
-11. [Key Findings & Analysis](#11-key-findings--analysis)
+11. [Experiment 4 — WeightedRandomSampler + Stronger Augmentation (Failed)](#11-experiment-4--weightedrandomsampler--stronger-augmentation-failed-reverted)
+12. [Key Findings & Analysis](#12-key-findings--analysis)
 
 ---
 
@@ -296,24 +297,76 @@ Drone footage is top-down, so horizontal/vertical flips and small rotations are 
 
 ---
 
-## 11. Key Findings & Analysis
+## 11. Experiment 4 — WeightedRandomSampler + Stronger Augmentation (Failed, Reverted)
 
-### 11.1 Overlay leakage
+**Goal:** Improve Low class F1 by balancing training batches and applying stronger augmentation.
+
+### Changes made
+
+**WeightedRandomSampler (`train.py`)**
+Replaced `shuffle=True` with `WeightedRandomSampler`, assigning each training sample a weight equal to its class weight (inverse frequency). This forces each training batch to contain roughly equal numbers of Low / Medium / High samples regardless of their natural frequency in the dataset.
+
+**Augmentation upgrades (`congestion_dataset.py`)**
+| Parameter | Before | After |
+|---|---|---|
+| RandomVerticalFlip | — | Added (p=0.5) |
+| RandomRotation | ±10° | ±15° |
+| ColorJitter brightness | 0.2 | 0.3 |
+| ColorJitter contrast | 0.2 | 0.3 |
+| RandomErasing | — | Added (p=0.3, scale 2–15%) |
+
+### Results
+
+| Model | Test Acc (Exp 2) | Test Acc (Exp 4) | Δ | Notes |
+|---|---|---|---|---|
+| Baseline CNN | 0.7241 | **0.4971** | −0.227 | Collapsed |
+| MobileNetV2 | 0.7874 | 0.7787 | −0.009 | Minor drop |
+| ResNet-50 | 0.7615 | **0.5690** | −0.193 | Collapsed |
+| EfficientNet-B0 | 0.7759 | 0.7644 | −0.012 | Minor drop |
+
+### Failure analysis
+
+The two collapsed models (Baseline CNN, ResNet-50) showed the same pathological pattern:
+
+| Class | Recall (Exp 2) | Recall (Exp 4) |
+|---|---|---|
+| Low | ~0.52–0.63 | **0.97–0.98** |
+| Medium | ~0.71–0.80 | **0.13–0.25** |
+| High | ~0.84–0.93 | **0.96–0.98** |
+
+Models learned to predict almost everything as Low or High, essentially abandoning Medium.
+
+**Root cause — distribution mismatch:**
+WeightedRandomSampler trains on an approximately uniform 33%/33%/33% class distribution, but the test set retains the natural 17%/56%/27% distribution. The model's learned decision boundaries are calibrated for a balanced world that does not exist at inference time. Medium, which accounts for 56% of real traffic states, was systematically underweighted in training relative to its importance at test time.
+
+Class-weighted loss (already in use from Experiment 2) applies a gentler correction — it up-weights the loss from minority class errors without changing the sample frequencies seen per epoch. WeightedRandomSampler changes the fundamental marginal distribution the model trains on, which proved too aggressive here.
+
+**Why MobileNetV2 and EfficientNet-B0 were more resilient:**
+Both use depthwise-separable / MBConv architectures with stronger inductive biases for feature reuse. Baseline CNN (3-block, 619K) and ResNet-50 (plain residual, 23.5M) appear more sensitive to training distribution shift, with the shallow baseline CNN having insufficient capacity to re-generalise under the new regime.
+
+### Decision
+Reverted all changes. Retrained all 4 models with original configuration (Experiment 2 settings). This negative result is documented as it demonstrates that naive oversampling of minority classes can be counter-productive when test distribution is imbalanced, and that class-weighted loss is a more stable correction for this dataset.
+
+---
+
+## 12. Key Findings & Analysis
+
+### 12.1 Overlay leakage
 The largest finding of the project. Red bounding boxes baked into source video constituted a spurious cue that models could exploit — higher overlay density = more vehicles = higher congestion. Baseline CNN (a shallow, 3-block network) dropped most after removal, indicating it was learning this shortcut rather than genuine visual features. MobileNetV2's improvement confirms it was being degraded by the overlays rather than helped.
 
-### 11.2 Low class is consistently hardest
+### 12.2 Low class is consistently hardest
 Across all models and both experiments, Low F1 is always the weakest class (0.52–0.65). Root cause: class imbalance — Low accounts for only 17.3% of samples (398 out of 2,296). Class-weighted loss partially compensates, but a larger Low-class sample pool would further improve this.
 
-### 11.3 MobileNetV2 efficiency
+### 12.3 MobileNetV2 efficiency
 MobileNetV2 achieves the best test accuracy (78.74%) with only 2.2M parameters — 10× fewer than ResNet-50 (23.5M, 76.15%). This suggests the depthwise-separable convolution structure in MobileNetV2 is well-suited to the spatial patterns present in top-down drone footage at this scale.
 
-### 11.4 EfficientNet-B0 High F1
+### 12.4 EfficientNet-B0 High F1
 EfficientNet-B0 achieves the highest High F1 (0.878), above MobileNetV2 (0.847). If the application were focused solely on detecting severe congestion (e.g., triggering emergency response), EfficientNet-B0 would be preferred. For balanced general-purpose classification, MobileNetV2 wins on macro F1.
 
-### 11.5 Why temporal split was not used
+### 12.5 Why temporal split was not used
 An early consideration was to split temporally (first 70% of frames in time = train). This was rejected because congestion is not uniformly distributed over time within a recording — peak periods cluster together, meaning a temporal split can leave entire congestion levels absent from val/test. Window-level stratified split is more statistically sound for this dataset.
 
-### 11.6 Window-level split prevents leakage
+### 12.6 Window-level split prevents leakage
 3 frames extracted from the same 5-second window are near-identical (1–2 seconds apart). A frame-level random split would place these near-duplicates across train/test, inflating test accuracy. Keeping all frames from the same window in the same split prevents this.
 
 ---
