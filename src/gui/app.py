@@ -121,6 +121,24 @@ select, .gr-dropdown {
 
 /* ── Label component ── */
 .gr-label { background: #161b22 !important; border: 1px solid #30363d !important; border-radius: 12px !important; }
+
+/* ── Secondary buttons (Use) ── */
+.gr-button-secondary, button.secondary {
+    background: transparent !important;
+    border: 1px solid #30363d !important;
+    color: #8b949e !important;
+    font-weight: 500 !important;
+    font-size: 0.82em !important;
+    letter-spacing: 0.05em !important;
+    border-radius: 6px !important;
+    padding: 6px 12px !important;
+    transition: all 0.2s !important;
+}
+.gr-button-secondary:hover, button.secondary:hover {
+    border-color: #00d4aa !important;
+    color: #00d4aa !important;
+    background: #00d4aa11 !important;
+}
 """
 
 
@@ -671,15 +689,15 @@ def build_app():
                             ex1 = gr.Image(type="pil", interactive=False, show_label=False, height=110)
                             ex2 = gr.Image(type="pil", interactive=False, show_label=False, height=110)
                         with gr.Row():
-                            use0 = gr.Button("Use", scale=1)
-                            use1 = gr.Button("Use", scale=1)
-                            use2 = gr.Button("Use", scale=1)
+                            use0 = gr.Button("Use", scale=1, variant="secondary")
+                            use1 = gr.Button("Use", scale=1, variant="secondary")
+                            use2 = gr.Button("Use", scale=1, variant="secondary")
                         with gr.Row():
                             class_filter = gr.Radio(
                                 choices=["Any", "Low", "Medium", "High"],
                                 value="Any", label="", container=False, scale=2
                             )
-                            shuffle_btn = gr.Button("🔀 Shuffle", scale=1)
+                            shuffle_btn = gr.Button("🔀 Shuffle", scale=1, variant="primary")
 
                     with gr.Column(scale=1):
                         pred_out   = gr.HTML(
