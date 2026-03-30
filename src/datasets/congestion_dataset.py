@@ -25,11 +25,13 @@ def get_train_transforms(image_size: Tuple[int, int]) -> transforms.Compose:
     return transforms.Compose([
         transforms.Resize(image_size),
         transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(10),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.1),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.15),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225]),
+        transforms.RandomErasing(p=0.3, scale=(0.02, 0.15), ratio=(0.3, 3.3)),
     ])
 
 
@@ -120,3 +122,13 @@ class CongestionDataset(Dataset):
             cnt = counts.get(lbl, 1)
             weights.append(total / (3.0 * cnt))
         return weights
+
+    def get_sample_weights(self):
+        # type: () -> List[float]
+        """
+        Returns per-sample weights for WeightedRandomSampler.
+        Each sample's weight = its class weight, so minority classes are
+        sampled more frequently to produce balanced batches.
+        """
+        class_weights = self.get_class_weights()
+        return [class_weights[LABEL_MAP[lbl]] for lbl in self.df["label"]]
