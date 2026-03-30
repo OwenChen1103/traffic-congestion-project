@@ -475,10 +475,11 @@ def methodology_html():
          "Split at the window level (not frame level) to prevent near-duplicate frames from "
          "appearing in both train and test. Composite key (pair_id, window_id) stratified by label. "
          "Ratio: 70% train / 15% val / 15% test."),
-        ("06", "#00d4aa", "CNN Classification",
+        ("06", "#00d4aa", "CNN Classification + Ensemble",
          "Four architectures trained: Baseline CNN, MobileNetV2, ResNet-50, EfficientNet-B0. "
          "Class-weighted CrossEntropyLoss, cosine LR annealing, 50 epochs. "
-         "Best model: MobileNetV2 (test acc 78.74%, macro F1 0.766)."),
+         "Best single model: MobileNetV2 (78.74%). "
+         "Ensemble + TTA (5 augmented variants × 4 models, averaged): <b>82.18% test accuracy</b>."),
     ]
 
     cards = ""

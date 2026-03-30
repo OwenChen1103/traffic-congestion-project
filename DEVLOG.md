@@ -14,7 +14,8 @@
 7. [Overlay Discovery & Removal](#7-overlay-discovery--removal)
 8. [Experiment 2 — Retrain on Clean Frames (Final Results)](#8-experiment-2--retrain-on-clean-frames-final-results)
 9. [Model Comparison: Before vs After Overlay Removal](#9-model-comparison-before-vs-after-overlay-removal)
-10. [Key Findings & Analysis](#10-key-findings--analysis)
+10. [Experiment 3 — Ensemble + Test-Time Augmentation](#10-experiment-3--ensemble--test-time-augmentation-no-retraining)
+11. [Key Findings & Analysis](#11-key-findings--analysis)
 
 ---
 
@@ -260,24 +261,59 @@ def remove_red_overlay(img_bgr):
 
 ---
 
-## 10. Key Findings & Analysis
+## 10. Experiment 3 — Ensemble + Test-Time Augmentation (No Retraining)
 
-### 10.1 Overlay leakage
+**Goal:** Improve accuracy without retraining by combining all 4 existing checkpoints and applying TTA.
+
+### Ensemble
+Average softmax probabilities from all 4 models before taking argmax. No retraining required.
+
+### Test-Time Augmentation (TTA)
+Each image is augmented 5 ways at inference time; probabilities are averaged:
+1. Original (no augmentation)
+2. Horizontal flip
+3. Vertical flip
+4. +5° rotation
+5. −5° rotation
+
+Drone footage is top-down, so horizontal/vertical flips and small rotations are all physically plausible orientations.
+
+### Results
+
+| Mode | Test Acc | Macro F1 | Low F1 | Med F1 | High F1 |
+|---|---|---|---|---|---|
+| MobileNetV2 (single, no TTA) | 0.7874 | 0.7659 | 0.650 | 0.800 | 0.847 |
+| Ensemble (4 models, no TTA) | 0.8046 | 0.7845 | 0.672 | 0.817 | 0.864 |
+| **Ensemble + TTA ⚡** | **0.8218** | **0.7992** | **0.667** | **0.839** | **0.893** |
+
+**→ Ensemble + TTA: 82.18% test accuracy** — +3.44% over best single model, no retraining needed.
+
+### Observations
+- Ensemble alone gives +1.72% over best single model — model diversity reduces variance
+- TTA adds another +1.72% on top — spatial augmentation particularly effective for top-down drone views
+- High F1 improves most (0.847 → 0.893); Low F1 gains are smaller (0.650 → 0.667), consistent with it being the harder minority class
+- Inference is ~20× slower than single model (4 models × 5 TTA variants = 20 forward passes per image)
+
+---
+
+## 11. Key Findings & Analysis
+
+### 11.1 Overlay leakage
 The largest finding of the project. Red bounding boxes baked into source video constituted a spurious cue that models could exploit — higher overlay density = more vehicles = higher congestion. Baseline CNN (a shallow, 3-block network) dropped most after removal, indicating it was learning this shortcut rather than genuine visual features. MobileNetV2's improvement confirms it was being degraded by the overlays rather than helped.
 
-### 10.2 Low class is consistently hardest
+### 11.2 Low class is consistently hardest
 Across all models and both experiments, Low F1 is always the weakest class (0.52–0.65). Root cause: class imbalance — Low accounts for only 17.3% of samples (398 out of 2,296). Class-weighted loss partially compensates, but a larger Low-class sample pool would further improve this.
 
-### 10.3 MobileNetV2 efficiency
+### 11.3 MobileNetV2 efficiency
 MobileNetV2 achieves the best test accuracy (78.74%) with only 2.2M parameters — 10× fewer than ResNet-50 (23.5M, 76.15%). This suggests the depthwise-separable convolution structure in MobileNetV2 is well-suited to the spatial patterns present in top-down drone footage at this scale.
 
-### 10.4 EfficientNet-B0 High F1
+### 11.4 EfficientNet-B0 High F1
 EfficientNet-B0 achieves the highest High F1 (0.878), above MobileNetV2 (0.847). If the application were focused solely on detecting severe congestion (e.g., triggering emergency response), EfficientNet-B0 would be preferred. For balanced general-purpose classification, MobileNetV2 wins on macro F1.
 
-### 10.5 Why temporal split was not used
+### 11.5 Why temporal split was not used
 An early consideration was to split temporally (first 70% of frames in time = train). This was rejected because congestion is not uniformly distributed over time within a recording — peak periods cluster together, meaning a temporal split can leave entire congestion levels absent from val/test. Window-level stratified split is more statistically sound for this dataset.
 
-### 10.6 Window-level split prevents leakage
+### 11.6 Window-level split prevents leakage
 3 frames extracted from the same 5-second window are near-identical (1–2 seconds apart). A frame-level random split would place these near-duplicates across train/test, inflating test accuracy. Keeping all frames from the same window in the same split prevents this.
 
 ---
