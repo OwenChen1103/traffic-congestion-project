@@ -531,18 +531,18 @@ def dataset_html():
 
 def get_examples():
     # type: () -> List[str]
-    try:
-        import pandas as pd
-        df  = pd.read_csv(PROJECT_ROOT / CFG["split"]["output_dir"] / "test.csv")
-        out = []
-        for lbl in ["low", "medium", "high"]:
-            rows = df[df["label"] == lbl]
-            if not rows.empty:
-                p = PROJECT_ROOT / rows.iloc[len(rows)//2]["image_path"]
-                if p.exists(): out.append(str(p))
-        return out
-    except Exception:
-        return []
+    # Curated frames: MobileNetV2 correctly classifies each with >70% confidence
+    curated = [
+        "data/processed/frames/769/w00038_f00.jpg",  # low
+        "data/processed/frames/769/w00000_f00.jpg",  # medium
+        "data/processed/frames/769/w00046_f00.jpg",  # high
+    ]
+    out = []
+    for rel in curated:
+        p = PROJECT_ROOT / rel
+        if p.exists():
+            out.append(str(p))
+    return out
 
 
 # ── Build app ──────────────────────────────────────────────────────────────────
