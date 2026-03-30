@@ -24,7 +24,7 @@ from typing import Optional, Tuple
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.config.settings import CFG, PROJECT_ROOT
@@ -121,21 +121,13 @@ def main(model_name: str):
         splits_dir / "val.csv", PROJECT_ROOT, get_eval_transforms(image_size)
     )
 
-    # Class weights for loss + WeightedRandomSampler for balanced batches
+    # Class weights for imbalance handling
     class_weights = torch.tensor(train_ds.get_class_weights(), dtype=torch.float).to(device)
     print("[Class weights] {}".format(class_weights.tolist()))
 
-    sample_weights = train_ds.get_sample_weights()
-    sampler = WeightedRandomSampler(
-        weights=sample_weights,
-        num_samples=len(sample_weights),
-        replacement=True,
-    )
-    print("[Sampler] WeightedRandomSampler — {} samples".format(len(sample_weights)))
-
     train_loader = DataLoader(
         train_ds, batch_size=cfg_train["batch_size"],
-        sampler=sampler, num_workers=cfg_train["num_workers"], pin_memory=pin_memory
+        shuffle=True, num_workers=cfg_train["num_workers"], pin_memory=pin_memory
     )
     val_loader = DataLoader(
         val_ds, batch_size=cfg_train["batch_size"],
