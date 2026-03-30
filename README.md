@@ -8,12 +8,12 @@ Visual traffic congestion classification from drone intersection footage, with a
 
 | Model | Test Acc | Macro F1 | Low F1 | Med F1 | High F1 | Params |
 |---|---|---|---|---|---|---|
-| Baseline CNN | 0.7816 | 0.7325 | 0.524 | 0.801 | 0.872 | 619K |
-| MobileNetV2 | 0.7615 | 0.7218 | 0.551 | 0.787 | 0.828 | 2.2M |
-| **ResNet-50** | **0.7845** | **0.7615** | **0.634** | 0.795 | 0.856 | 23.5M |
-| EfficientNet-B0 | 0.7672 | 0.7383 | 0.585 | 0.791 | 0.839 | 4.0M |
+| Baseline CNN | 0.7241 | 0.7210 | 0.618 | 0.707 | 0.837 | 619K |
+| **MobileNetV2** | **0.7874** | **0.7659** | **0.650** | **0.800** | 0.847 | 2.2M |
+| ResNet-50 | 0.7615 | 0.7380 | 0.598 | 0.774 | 0.842 | 23.5M |
+| EfficientNet-B0 | 0.7759 | 0.7503 | 0.580 | 0.793 | **0.878** | 4.0M |
 
-Trained on 14 intersection pairs — 2,296 samples across 769 five-second windows. Window-level stratified 70/15/15 split.
+Trained on 14 intersection pairs — 2,296 samples across 769 five-second windows. Window-level stratified 70/15/15 split. Annotation overlays removed from all frames via HSV inpainting prior to training.
 
 ---
 
