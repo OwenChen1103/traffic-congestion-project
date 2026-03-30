@@ -189,10 +189,12 @@ class GradCAM:
     def _target_layer(self):
         # type: () -> Optional[nn.Module]
         n = self.model_name
-        if n == "baseline_cnn":   return self.model.features[-1]
-        if n == "mobilenet_v2":   return self.model.features[-1]
-        if n == "resnet50":       return self.model.layer4[-1]
-        if n == "efficientnet_b0": return self.model.features[-1]
+        # Use higher-resolution intermediate layers (14×14) for better spatial precision
+        # instead of the final 7×7 feature maps
+        if n == "baseline_cnn":    return self.model.features[-1]   # 28×28
+        if n == "mobilenet_v2":    return self.model.features[13]   # 14×14
+        if n == "resnet50":        return self.model.layer3[-1]     # 14×14
+        if n == "efficientnet_b0": return self.model.features[5]    # 14×14
         last = None
         for m in self.model.modules():
             if isinstance(m, nn.Conv2d): last = m
