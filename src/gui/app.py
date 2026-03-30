@@ -593,26 +593,20 @@ def build_app():
             df = df[df["label"] == class_filter.lower()]
         return df.reset_index(drop=True)
 
-    def browse_load(pair_filter, class_filter, direction):
-        # type: (str, str, str) -> tuple
-        df = get_filtered(pair_filter, class_filter)
+    def browse_load(class_filter, direction):
+        # type: (str, str) -> tuple
+        import random
+        df = get_filtered("All", class_filter)
         if df.empty:
             return None, "No frames found"
         n = len(df)
-        if direction == "next":
-            browse_idx[0] = (browse_idx[0] + 1) % n
-        elif direction == "prev":
-            browse_idx[0] = (browse_idx[0] - 1) % n
-        elif direction == "random":
-            import random
+        if direction == "random":
             browse_idx[0] = random.randint(0, n - 1)
-        elif direction == "reset":
-            browse_idx[0] = 0
-        row    = df.iloc[browse_idx[0]]
-        img    = Image.open(PROJECT_ROOT / row["image_path"]).convert("RGB")
-        info   = "Pair {pair} · Window {wid} · Frame {idx}/{total} · Label: {lbl}".format(
+        row = df.iloc[browse_idx[0]]
+        img = Image.open(PROJECT_ROOT / row["image_path"]).convert("RGB")
+        info = "Pair {pair} · Window {wid} · Label: {lbl}".format(
             pair=row["pair_id"], wid=int(row["window_id"]),
-            idx=browse_idx[0] + 1, total=n, lbl=row["label"].capitalize()
+            lbl=row["label"].capitalize()
         )
         return img, info
 
@@ -672,23 +666,11 @@ def build_app():
                         gr.HTML("""<div style="font-size:0.72em;color:#8b949e;letter-spacing:0.1em;
                                    text-transform:uppercase;margin:16px 0 8px;">
                                    Browse Dataset</div>""")
-                        with gr.Row():
-                            pair_drop  = gr.Dropdown(
-                                choices=["All"] + pair_ids,
-                                value="All", label="Pair", scale=1
-                            )
-                            class_drop = gr.Dropdown(
-                                choices=["All", "Low", "Medium", "High"],
-                                value="All", label="Class", scale=1
-                            )
-                        with gr.Row():
-                            prev_btn   = gr.Button("◀ Prev",  scale=1)
-                            rand_btn   = gr.Button("⟳ Random", scale=1, variant="primary")
-                            next_btn   = gr.Button("Next ▶",  scale=1)
-                        browse_info = gr.Textbox(
-                            label="", interactive=False,
-                            placeholder="Use buttons above to browse dataset frames"
+                        class_filter = gr.Radio(
+                            choices=["Any", "Low", "Medium", "High"],
+                            value="Any", label="", container=False
                         )
+                        rand_btn = gr.Button("🔀  Load Random Frame", variant="primary")
 
                     with gr.Column(scale=1):
                         pred_out   = gr.HTML(
@@ -705,25 +687,17 @@ def build_app():
                 model_drop.change(classify, [img_input, model_drop],
                                   [pred_out, signal_out, cam_out])
 
-                # Browse callbacks — load frame then auto-classify
-                def browse_and_classify(pair_f, class_f, direction, model_name):
-                    img, info = browse_load(pair_f, class_f, direction)
+                # Browse callback — load random frame then auto-classify
+                def browse_and_classify(class_f, model_name):
+                    cf = "All" if class_f == "Any" else class_f
+                    img, _ = browse_load(cf, "random")
                     if img is None:
-                        return None, info, "", "", None
+                        return None, "", "", None
                     p_html, s_html, cam = classify(img, model_name)
-                    return img, info, p_html, s_html, cam
+                    return img, p_html, s_html, cam
 
-                browse_outputs = [img_input, browse_info, pred_out, signal_out, cam_out]
-                prev_btn.click(lambda pf, cf, mn: browse_and_classify(pf, cf, "prev", mn),
-                               [pair_drop, class_drop, model_drop], browse_outputs)
-                next_btn.click(lambda pf, cf, mn: browse_and_classify(pf, cf, "next", mn),
-                               [pair_drop, class_drop, model_drop], browse_outputs)
-                rand_btn.click(lambda pf, cf, mn: browse_and_classify(pf, cf, "random", mn),
-                               [pair_drop, class_drop, model_drop], browse_outputs)
-                pair_drop.change(lambda pf, cf, mn: browse_and_classify(pf, cf, "reset", mn),
-                                 [pair_drop, class_drop, model_drop], browse_outputs)
-                class_drop.change(lambda pf, cf, mn: browse_and_classify(pf, cf, "reset", mn),
-                                  [pair_drop, class_drop, model_drop], browse_outputs)
+                rand_btn.click(browse_and_classify, [class_filter, model_drop],
+                               [img_input, pred_out, signal_out, cam_out])
 
             # ── Tab 2: Compare ──
             with gr.Tab("  Compare Models  "):
