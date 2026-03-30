@@ -662,19 +662,28 @@ def build_app():
                         )
                         classify_btn = gr.Button("Classify", variant="primary")
 
-                        # ── Browse dataset ──
+                        # ── Example frames ──
                         gr.HTML("""<div style="font-size:0.72em;color:#8b949e;letter-spacing:0.1em;
                                    text-transform:uppercase;margin:16px 0 8px;">
-                                   Browse Dataset</div>""")
-                        class_filter = gr.Radio(
-                            choices=["Any", "Low", "Medium", "High"],
-                            value="Any", label="", container=False
-                        )
-                        rand_btn = gr.Button("🔀  Load Random Frame", variant="primary")
+                                   Example Frames</div>""")
+                        with gr.Row():
+                            ex0 = gr.Image(type="pil", interactive=False, show_label=False, height=110)
+                            ex1 = gr.Image(type="pil", interactive=False, show_label=False, height=110)
+                            ex2 = gr.Image(type="pil", interactive=False, show_label=False, height=110)
+                        with gr.Row():
+                            use0 = gr.Button("Use", scale=1)
+                            use1 = gr.Button("Use", scale=1)
+                            use2 = gr.Button("Use", scale=1)
+                        with gr.Row():
+                            class_filter = gr.Radio(
+                                choices=["Any", "Low", "Medium", "High"],
+                                value="Any", label="", container=False, scale=2
+                            )
+                            shuffle_btn = gr.Button("🔀 Shuffle", scale=1)
 
                     with gr.Column(scale=1):
                         pred_out   = gr.HTML(
-                            value="<p style='color:#6e7681;font-family:sans-serif;padding:20px;'>Upload an image to begin.</p>"
+                            value="<p style='color:#6e7681;font-family:sans-serif;padding:20px;'>Upload an image or pick an example to begin.</p>"
                         )
                         signal_out = gr.HTML()
                         cam_out    = gr.Image(type="pil", label="GradCAM — influential regions",
@@ -687,17 +696,32 @@ def build_app():
                 model_drop.change(classify, [img_input, model_drop],
                                   [pred_out, signal_out, cam_out])
 
-                # Browse callback — load random frame then auto-classify
-                def browse_and_classify(class_f, model_name):
+                # Shuffle — pick 3 new random frames
+                def shuffle_examples(class_f):
                     cf = "All" if class_f == "Any" else class_f
-                    img, _ = browse_load(cf, "random")
+                    imgs = []
+                    for _ in range(3):
+                        img, _ = browse_load(cf, "random")
+                        imgs.append(img)
+                    return imgs[0], imgs[1], imgs[2]
+
+                shuffle_btn.click(shuffle_examples, [class_filter], [ex0, ex1, ex2])
+                class_filter.change(shuffle_examples, [class_filter], [ex0, ex1, ex2])
+
+                # Use — load selected thumbnail into main input and classify
+                def use_example(img, model_name):
                     if img is None:
                         return None, "", "", None
                     p_html, s_html, cam = classify(img, model_name)
                     return img, p_html, s_html, cam
 
-                rand_btn.click(browse_and_classify, [class_filter, model_drop],
-                               [img_input, pred_out, signal_out, cam_out])
+                use_outputs = [img_input, pred_out, signal_out, cam_out]
+                use0.click(use_example, [ex0, model_drop], use_outputs)
+                use1.click(use_example, [ex1, model_drop], use_outputs)
+                use2.click(use_example, [ex2, model_drop], use_outputs)
+
+                # Load initial 3 examples on startup
+                demo.load(shuffle_examples, [class_filter], [ex0, ex1, ex2])
 
             # ── Tab 2: Compare ──
             with gr.Tab("  Compare Models  "):
