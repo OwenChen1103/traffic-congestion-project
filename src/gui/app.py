@@ -325,7 +325,7 @@ def build_app(model_name):
 Upload an intersection frame to classify congestion level (Low / Medium / High)
 and receive a rule-based signal timing recommendation.
 
-Model: **{}** &nbsp;|&nbsp; Classes: 🟢 Low &nbsp; 🟡 Medium &nbsp; 🔴 High
+Model: **{}** (best) &nbsp;|&nbsp; Classes: 🟢 Low &nbsp; 🟡 Medium &nbsp; 🔴 High
         """.format(model_name.replace("_", "-").title()))
 
         with gr.Row():
@@ -407,7 +407,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model",
-        default="resnet50",
+        default="mobilenet_v2",
         choices=["baseline_cnn", "mobilenet_v2", "resnet50", "efficientnet_b0"],
         help="Model to load for inference (default: resnet50)",
     )
