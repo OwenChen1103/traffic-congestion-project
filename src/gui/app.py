@@ -716,11 +716,11 @@ def build_app():
 
                 # Shuffle — pick 3 new random frames
                 def shuffle_examples(class_f):
-                    cf = "All" if class_f == "Any" else class_f
-                    imgs = []
-                    for _ in range(3):
-                        img, _ = browse_load(cf, "random")
-                        imgs.append(img)
+                    if class_f == "Any":
+                        # One of each class: Low, Medium, High
+                        imgs = [browse_load(c, "random")[0] for c in ["Low", "Medium", "High"]]
+                    else:
+                        imgs = [browse_load(class_f, "random")[0] for _ in range(3)]
                     return imgs[0], imgs[1], imgs[2]
 
                 shuffle_btn.click(shuffle_examples, [class_filter], [ex0, ex1, ex2])
