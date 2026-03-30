@@ -529,6 +529,23 @@ def dataset_html():
 </div>""".format(stat_cards=stat_cards, rows=rows)
 
 
+# ── Dataset index ─────────────────────────────────────────────────────────────
+
+def build_dataset_index():
+    # type: () -> pd.DataFrame
+    """Load the full samples metadata for browsing."""
+    try:
+        import pandas as pd
+        path = PROJECT_ROOT / CFG["labeling"]["samples_metadata_all_csv"]
+        if path.exists():
+            df = pd.read_csv(path)
+            df = df[df["image_path"].apply(lambda p: (PROJECT_ROOT / p).exists())]
+            return df.reset_index(drop=True)
+    except Exception:
+        pass
+    return None
+
+
 # ── Example images ─────────────────────────────────────────────────────────────
 
 def get_examples():
@@ -560,6 +577,44 @@ def build_app():
         raise RuntimeError("No model checkpoints found. Run training first.")
 
     default_model = "mobilenet_v2" if "mobilenet_v2" in available else available[0]
+
+    # ── Dataset index for browsing ──
+    import pandas as pd
+    dataset_df = build_dataset_index()
+    pair_ids   = sorted(dataset_df["pair_id"].astype(str).unique().tolist()) if dataset_df is not None else []
+    browse_idx = [0]  # mutable pointer
+
+    def get_filtered(pair_filter, class_filter):
+        # type: (str, str) -> pd.DataFrame
+        df = dataset_df.copy() if dataset_df is not None else pd.DataFrame()
+        if pair_filter != "All":
+            df = df[df["pair_id"].astype(str) == pair_filter]
+        if class_filter != "All":
+            df = df[df["label"] == class_filter.lower()]
+        return df.reset_index(drop=True)
+
+    def browse_load(pair_filter, class_filter, direction):
+        # type: (str, str, str) -> tuple
+        df = get_filtered(pair_filter, class_filter)
+        if df.empty:
+            return None, "No frames found"
+        n = len(df)
+        if direction == "next":
+            browse_idx[0] = (browse_idx[0] + 1) % n
+        elif direction == "prev":
+            browse_idx[0] = (browse_idx[0] - 1) % n
+        elif direction == "random":
+            import random
+            browse_idx[0] = random.randint(0, n - 1)
+        elif direction == "reset":
+            browse_idx[0] = 0
+        row    = df.iloc[browse_idx[0]]
+        img    = Image.open(PROJECT_ROOT / row["image_path"]).convert("RGB")
+        info   = "Pair {pair} · Window {wid} · Frame {idx}/{total} · Label: {lbl}".format(
+            pair=row["pair_id"], wid=int(row["window_id"]),
+            idx=browse_idx[0] + 1, total=n, lbl=row["label"].capitalize()
+        )
+        return img, info
 
     # ── Inference functions ──
     def classify(image, model_name):
@@ -612,10 +667,27 @@ def build_app():
                             label="Model",
                         )
                         classify_btn = gr.Button("Classify", variant="primary")
-                        gr.Examples(
-                            examples=get_examples(),
-                            inputs=img_input,
-                            label="Example frames (Low / Medium / High)",
+
+                        # ── Browse dataset ──
+                        gr.HTML("""<div style="font-size:0.72em;color:#8b949e;letter-spacing:0.1em;
+                                   text-transform:uppercase;margin:16px 0 8px;">
+                                   Browse Dataset</div>""")
+                        with gr.Row():
+                            pair_drop  = gr.Dropdown(
+                                choices=["All"] + pair_ids,
+                                value="All", label="Pair", scale=1
+                            )
+                            class_drop = gr.Dropdown(
+                                choices=["All", "Low", "Medium", "High"],
+                                value="All", label="Class", scale=1
+                            )
+                        with gr.Row():
+                            prev_btn   = gr.Button("◀ Prev",  scale=1)
+                            rand_btn   = gr.Button("⟳ Random", scale=1, variant="primary")
+                            next_btn   = gr.Button("Next ▶",  scale=1)
+                        browse_info = gr.Textbox(
+                            label="", interactive=False,
+                            placeholder="Use buttons above to browse dataset frames"
                         )
 
                     with gr.Column(scale=1):
@@ -632,6 +704,26 @@ def build_app():
                                  [pred_out, signal_out, cam_out])
                 model_drop.change(classify, [img_input, model_drop],
                                   [pred_out, signal_out, cam_out])
+
+                # Browse callbacks — load frame then auto-classify
+                def browse_and_classify(pair_f, class_f, direction, model_name):
+                    img, info = browse_load(pair_f, class_f, direction)
+                    if img is None:
+                        return None, info, "", "", None
+                    p_html, s_html, cam = classify(img, model_name)
+                    return img, info, p_html, s_html, cam
+
+                browse_outputs = [img_input, browse_info, pred_out, signal_out, cam_out]
+                prev_btn.click(lambda pf, cf, mn: browse_and_classify(pf, cf, "prev", mn),
+                               [pair_drop, class_drop, model_drop], browse_outputs)
+                next_btn.click(lambda pf, cf, mn: browse_and_classify(pf, cf, "next", mn),
+                               [pair_drop, class_drop, model_drop], browse_outputs)
+                rand_btn.click(lambda pf, cf, mn: browse_and_classify(pf, cf, "random", mn),
+                               [pair_drop, class_drop, model_drop], browse_outputs)
+                pair_drop.change(lambda pf, cf, mn: browse_and_classify(pf, cf, "reset", mn),
+                                 [pair_drop, class_drop, model_drop], browse_outputs)
+                class_drop.change(lambda pf, cf, mn: browse_and_classify(pf, cf, "reset", mn),
+                                  [pair_drop, class_drop, model_drop], browse_outputs)
 
             # ── Tab 2: Compare ──
             with gr.Tab("  Compare Models  "):
