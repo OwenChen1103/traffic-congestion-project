@@ -27,6 +27,14 @@ outputs/logs/
 !outputs/figures/.gitkeep
 !outputs/reports/.gitkeep
 
+# Environment / secrets
+.env
+
+# Live camera data — raw frames and intermediate generated files
+data/live/raw/
+data/live/detections/
+data/live/labels/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -35,7 +43,8 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Weights & model binaries (*.pt included in repo — see outputs/checkpoints/)
+# Weights & model binaries
+yolov8n.pt
 *.pth
 *.h5
 *.onnx

@@ -127,8 +127,8 @@ def save_results(label, all_preds, all_labels, class_names):
     print("\nTest Accuracy: {:.4f}".format(accuracy))
 
 
-def main(model_name, use_ensemble, use_tta):
-    # type: (str, bool, bool) -> None
+def main(model_name, use_ensemble, use_tta, splits_dir=None):
+    # type: (str, bool, bool, Path) -> None
     print("=" * 60)
     mode_str = []
     if use_ensemble: mode_str.append("ensemble")
@@ -138,7 +138,9 @@ def main(model_name, use_ensemble, use_tta):
     print("=" * 60)
 
     cfg_model   = CFG["models"]
-    splits_dir  = PROJECT_ROOT / CFG["split"]["output_dir"]
+    if splits_dir is None:
+        splits_dir = PROJECT_ROOT / CFG["split"]["output_dir"]
+    splits_dir  = Path(splits_dir)
     image_size  = tuple(CFG["frame_extraction"]["image_size"])
     class_names = cfg_model["class_names"]
     num_classes = cfg_model["num_classes"]
@@ -203,9 +205,11 @@ if __name__ == "__main__":
                         help="Average predictions from all 4 models")
     parser.add_argument("--tta", action="store_true",
                         help="Apply test-time augmentation (5 variants, averaged)")
+    parser.add_argument("--split-dir", type=str, default=None,
+                        help="Path to splits directory (default: from config)")
     args = parser.parse_args()
 
     if not args.ensemble and args.model is None:
         parser.error("Provide --model <name> or --ensemble")
 
-    main(args.model, args.ensemble, args.tta)
+    main(args.model, args.ensemble, args.tta, splits_dir=args.split_dir)
