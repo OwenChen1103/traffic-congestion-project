@@ -14,7 +14,7 @@ Visual traffic congestion classification from drone intersection footage, with a
 | EfficientNet-B0 | 0.7759 | 0.7503 | 0.580 | 0.793 | **0.878** | 4.0M |
 | **Ensemble + TTA** | **0.8218** | **0.7992** | **0.667** | **0.839** | **0.893** | 4 models |
 
-Trained on 14 intersection pairs — 2,296 samples across 769 five-second windows. Window-level stratified 70/15/15 split. Annotation overlays removed from all frames via HSV inpainting prior to training. Ensemble+TTA averages predictions from all 4 models across 5 augmented variants (original, h-flip, v-flip, ±5° rotation) at inference time — no retraining required.
+Trained on 14 intersection pairs — 2,296 samples across 777 five-second windows. Window-level stratified 70/15/15 split. Annotation overlays removed from all frames via HSV inpainting prior to training. Ensemble+TTA averages predictions from all 4 models across 5 augmented variants (original, h-flip, v-flip, ±5° rotation) at inference time — no retraining required.
 
 ---
 

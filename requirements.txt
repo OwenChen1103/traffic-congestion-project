@@ -13,6 +13,12 @@ Pillow>=10.0.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
 
+# HTTP
+requests>=2.31.0
+
+# Vehicle detection
+ultralytics>=8.0.0
+
 # Utilities
 tqdm>=4.65.0
 PyYAML>=6.0

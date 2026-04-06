@@ -1,0 +1,11 @@
+Mode: ensemble
+
+              precision    recall  f1-score   support
+
+         low     0.6462    0.7000    0.6720        60
+      medium     0.8588    0.7795    0.8172       195
+        high     0.8113    0.9247    0.8643        93
+
+    accuracy                         0.8046       348
+   macro avg     0.7721    0.8014    0.7845       348
+weighted avg     0.8094    0.8046    0.8048       348

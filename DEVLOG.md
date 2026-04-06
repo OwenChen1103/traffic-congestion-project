@@ -104,7 +104,7 @@ score = 0.4 × norm_count + 0.4 × (1 − norm_speed) + 0.2 × stop_proxy
 | Metric | Value |
 |---|---|
 | Pairs | 14 |
-| Total windows | 769 |
+| Total windows | 777 |
 | Total samples (frames) | 2,296 |
 | Frames per window | 3 |
 | Image size | 224 × 224 |

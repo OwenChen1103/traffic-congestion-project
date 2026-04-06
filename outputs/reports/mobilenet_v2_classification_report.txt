@@ -1,11 +1,11 @@
-Model: mobilenet_v2
+Mode: mobilenet_v2
 
               precision    recall  f1-score   support
 
-         low     0.6349    0.6667    0.6504        60
-      medium     0.8457    0.7590    0.8000       195
-        high     0.7818    0.9247    0.8473        93
+         low     0.9529    0.8285    0.8863       927
+      medium     0.7314    0.6891    0.7096       727
+        high     0.6775    0.9405    0.7876       420
 
-    accuracy                         0.7874       348
-   macro avg     0.7542    0.7835    0.7659       348
-weighted avg     0.7923    0.7874    0.7868       348
+    accuracy                         0.8023      2074
+   macro avg     0.7873    0.8194    0.7945      2074
+weighted avg     0.8195    0.8023    0.8044      2074

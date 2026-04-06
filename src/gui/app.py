@@ -509,7 +509,7 @@ def dataset_html():
     # type: () -> str
     stats = [
         ("14", "Recording Pairs",    "#00d4aa", "Intersections 769–785"),
-        ("769", "Total Windows",     "#58a6ff", "5-second temporal windows"),
+        ("777", "Total Windows",     "#58a6ff", "5-second temporal windows"),
         ("2,296", "Training Samples","#d29922", "3 frames per window"),
         ("29.97", "FPS",             "#bc8cff", "Drone footage frame rate"),
         ("224×224", "Image Size",    "#f85149", "Pixels, RGB, JPEG"),

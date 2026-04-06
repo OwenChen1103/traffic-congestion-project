@@ -1,0 +1,11 @@
+Mode: ensemble_tta
+
+              precision    recall  f1-score   support
+
+         low     0.6364    0.7000    0.6667        60
+      medium     0.8519    0.8256    0.8385       195
+        high     0.8925    0.8925    0.8925        93
+
+    accuracy                         0.8218       348
+   macro avg     0.7936    0.8060    0.7992       348
+weighted avg     0.8256    0.8218    0.8233       348

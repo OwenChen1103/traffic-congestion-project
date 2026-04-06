@@ -88,14 +88,17 @@ def run_epoch(
     return avg_loss, accuracy
 
 
-def main(model_name: str):
+def main(model_name: str, splits_dir: Optional[Path] = None):
     print("=" * 60)
     print("train.py — training model: {}".format(model_name))
     print("=" * 60)
 
     cfg_train = CFG["training"]
     cfg_model = CFG["models"]
-    splits_dir = PROJECT_ROOT / CFG["split"]["output_dir"]
+    if splits_dir is None:
+        splits_dir = PROJECT_ROOT / CFG["split"]["output_dir"]
+    splits_dir = Path(splits_dir)
+    print("[Splits] {}".format(splits_dir))
     image_size = tuple(CFG["frame_extraction"]["image_size"])
     num_classes = cfg_model["num_classes"]
     seed = CFG["project"]["seed"]
@@ -216,5 +219,11 @@ if __name__ == "__main__":
         choices=["baseline_cnn", "mobilenet_v2", "resnet50", "efficientnet_b0"],
         help="Model architecture to train",
     )
+    parser.add_argument(
+        "--split-dir",
+        type=str,
+        default=None,
+        help="Path to splits directory (default: data/processed/splits from config)",
+    )
     args = parser.parse_args()
-    main(args.model)
+    main(args.model, splits_dir=args.split_dir)

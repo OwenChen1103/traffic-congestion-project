@@ -1,4 +1,4 @@
-Model: resnet50
+Mode: resnet50
 
               precision    recall  f1-score   support
 

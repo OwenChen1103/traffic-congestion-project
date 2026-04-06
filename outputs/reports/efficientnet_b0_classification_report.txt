@@ -1,4 +1,4 @@
-Model: efficientnet_b0
+Mode: efficientnet_b0
 
               precision    recall  f1-score   support
 

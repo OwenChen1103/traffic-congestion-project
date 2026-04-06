@@ -1,4 +1,4 @@
-Model: baseline_cnn
+Mode: baseline_cnn
 
               precision    recall  f1-score   support
 
