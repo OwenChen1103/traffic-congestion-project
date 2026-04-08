@@ -1,26 +1,47 @@
 # Traffic Congestion Classification from Intersection Footage
 
-Visual traffic congestion classification from drone intersection footage, with a rule-based signal timing recommendation prototype. Three congestion levels are predicted — **Low**, **Medium**, and **High** — using CNN-based image classifiers trained on the Waterloo Multi-Agent Traffic Dataset.
+Visual traffic congestion classification from intersection footage, with a rule-based signal timing recommendation prototype. Three congestion levels are predicted — **Low**, **Medium**, and **High** — using CNN-based image classifiers trained on two datasets: the Waterloo Multi-Agent Traffic Dataset (drone footage) and live NSW traffic camera streams.
 
 ---
 
 ## Results
 
+### Live NSW Camera Dataset (Primary)
+
+10 cameras across Sydney and Wollongong. Street-level fixed cameras. Labels derived from YOLOv8n vehicle detection with per-camera calibrated thresholds. Train/test split by camera region (Sydney → trained, Wollongong → tested).
+
+| Model | Test Acc | Macro F1 | Low F1 | Med F1 | High F1 |
+|---|---|---|---|---|---|
+| Baseline CNN | 0.7201 | 0.7246 | 0.822 | 0.636 | 0.716 |
+| MobileNetV2 | 0.8143 | 0.8204 | 0.880 | 0.764 | 0.818 |
+| ResNet-50 | 0.7686 | 0.7778 | 0.845 | 0.715 | 0.773 |
+| EfficientNet-B0 | 0.8290 | 0.8340 | 0.899 | 0.768 | 0.835 |
+| Ensemble (4 models) | 0.8249 | 0.8308 | 0.891 | 0.776 | 0.825 |
+| **EfficientNet-B0 + TTA** ⚡ | **0.8331** | **0.8375** | 0.898 | 0.774 | **0.841** |
+
+**Best model: EfficientNet-B0 + TTA — 83.31% test accuracy**
+
+19,919 frames collected across 3 sessions (weekend + weekday morning/midday/afternoon peak). 15,881 retained after brightness and nighttime filters. Window-level stratified split (4 frames/window kept together).
+
+---
+
+### Drone Dataset (Waterloo, Reference)
+
 | Model | Test Acc | Macro F1 | Low F1 | Med F1 | High F1 | Params |
 |---|---|---|---|---|---|---|
 | Baseline CNN | 0.7241 | 0.7210 | 0.618 | 0.707 | 0.837 | 619K |
-| MobileNetV2 | 0.7874 | 0.7659 | 0.650 | 0.800 | 0.847 | 2.2M |
+| **MobileNetV2** ★ | **0.7874** | **0.7659** | **0.650** | **0.800** | 0.847 | 2.2M |
 | ResNet-50 | 0.7615 | 0.7380 | 0.598 | 0.774 | 0.842 | 23.5M |
 | EfficientNet-B0 | 0.7759 | 0.7503 | 0.580 | 0.793 | **0.878** | 4.0M |
 | **Ensemble + TTA** | **0.8218** | **0.7992** | **0.667** | **0.839** | **0.893** | 4 models |
 
-Trained on 14 intersection pairs — 2,296 samples across 777 five-second windows. Window-level stratified 70/15/15 split. Annotation overlays removed from all frames via HSV inpainting prior to training. Ensemble+TTA averages predictions from all 4 models across 5 augmented variants (original, h-flip, v-flip, ±5° rotation) at inference time — no retraining required.
+2,296 samples across 777 five-second windows. Annotation overlays removed via HSV inpainting prior to training.
 
 ---
 
 ## Quickstart
 
-### 1. Clone and install
+### Install
 
 ```bash
 git clone https://github.com/OwenChen1103/traffic-congestion-project.git
@@ -30,7 +51,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Run the demo GUI
+### Run the demo GUI
 
 ```bash
 python src/gui/app.py
@@ -39,25 +60,53 @@ python src/gui/app.py
 Opens at `http://localhost:7860`. Upload any intersection frame to get:
 - Predicted congestion class + per-class confidence
 - Rule-based signal timing recommendation
-- GradCAM heatmap showing which regions drove the prediction
+- GradCAM heatmap
 
-To use a different model:
-```bash
-python src/gui/app.py --model baseline_cnn
-python src/gui/app.py --model mobilenet_v2
-python src/gui/app.py --model efficientnet_b0
-```
-
-### 3. Evaluate models on the test set
+### Evaluate models (live dataset)
 
 ```bash
-python src/evaluation/evaluate.py --model resnet50
-python src/evaluation/evaluate.py --model baseline_cnn
-python src/evaluation/evaluate.py --model mobilenet_v2
-python src/evaluation/evaluate.py --model efficientnet_b0
+python src/evaluation/evaluate.py --model efficientnet_b0 --split-dir data/live/splits
+python src/evaluation/evaluate.py --model mobilenet_v2 --split-dir data/live/splits
+python src/evaluation/evaluate.py --ensemble --split-dir data/live/splits
+python src/evaluation/evaluate.py --model efficientnet_b0 --tta --split-dir data/live/splits
 ```
 
-Outputs saved to `outputs/reports/` and `outputs/figures/`.
+### Preview model predictions
+
+```bash
+python src/live_pipeline/preview_predictions.py --model efficientnet_b0
+```
+
+Shows sample LOW / MEDIUM / HIGH predictions with YOLO bounding boxes, vehicle counts, confidence scores, and ground truth labels. Press `n` for a new random batch.
+
+---
+
+## Live Pipeline
+
+### Collect new camera data
+
+```bash
+python src/live_pipeline/collect.py --duration 90   # collect for 90 minutes
+```
+
+Polls 10 TfNSW cameras every 15 seconds. Automatically resumes from the last collected window. Requires `TFNSW_API_KEY` in `.env`.
+
+### Run the full pipeline after collection
+
+```bash
+python src/live_pipeline/detect.py          # YOLOv8n vehicle detection on all frames
+python src/live_pipeline/label.py           # Per-frame congestion labeling
+python src/live_pipeline/build_dataset.py   # Train/val/test split CSVs
+python src/training/train.py --model efficientnet_b0 --split-dir data/live/splits
+```
+
+### Visual label review
+
+```bash
+python src/live_pipeline/manual_label.py
+```
+
+Review tool showing 9 images per camera (3 per class). YOLO boxes shown in real time — green = counted towards vehicle count, red dashed = excluded by camera ROI.
 
 ---
 
@@ -68,93 +117,80 @@ traffic-congestion-project/
 │
 ├── src/
 │   ├── config/
-│   │   ├── config.yaml          # Central configuration (paths, hyperparameters)
-│   │   └── settings.py          # Config loader and path helpers
+│   │   ├── config.yaml              # Central configuration
+│   │   └── settings.py
 │   │
-│   ├── preprocessing/
-│   │   ├── discover_pairs.py    # Scans data/raw/ for valid dataset pairs
-│   │   ├── process_pairs.py     # Orchestrator — runs full pipeline for all pairs
-│   │   ├── extract_frames.py    # Step 3: extract JPEG frames per window per pair
-│   │   └── build_splits.py      # Step 4: window-stratified train/val/test split
+│   ├── drone_pipeline/              # Waterloo drone dataset pipeline
+│   │   ├── discover_pairs.py
+│   │   ├── process_pairs.py
+│   │   ├── extract_frames.py
+│   │   ├── build_splits.py
+│   │   ├── generate_labels.py
+│   │   ├── inspect_dataset.py
+│   │   └── remove_overlays.py       # HSV inpainting to remove annotation overlays
 │   │
-│   ├── labeling/
-│   │   └── generate_labels.py   # Step 2: congestion labels from SQLite annotations
+│   ├── live_pipeline/               # NSW live camera pipeline
+│   │   ├── collect.py               # TfNSW API data collection
+│   │   ├── detect.py                # YOLOv8n vehicle detection
+│   │   ├── label.py                 # Per-frame congestion labeling
+│   │   ├── build_dataset.py         # Train/val/test split builder
+│   │   ├── manual_label.py          # Visual label review tool
+│   │   └── preview_predictions.py   # Model prediction visualiser
 │   │
 │   ├── datasets/
-│   │   └── congestion_dataset.py  # PyTorch Dataset class
+│   │   └── congestion_dataset.py    # PyTorch Dataset class
 │   │
 │   ├── models/
-│   │   ├── baseline_cnn.py      # Custom 3-block CNN baseline
-│   │   └── transfer_models.py   # MobileNetV2, ResNet-50, EfficientNet-B0
+│   │   ├── baseline_cnn.py
+│   │   └── transfer_models.py
 │   │
 │   ├── training/
-│   │   └── train.py             # Training loop with cosine LR, class weighting
+│   │   └── train.py                 # Training loop, cosine LR, class weighting
 │   │
 │   ├── evaluation/
-│   │   └── evaluate.py          # Test set evaluation, confusion matrix, report
+│   │   └── evaluate.py              # Test eval, ensemble, TTA, --split-dir support
 │   │
 │   └── gui/
-│       └── app.py               # Gradio demo with GradCAM
+│       └── app.py                   # Gradio demo with GradCAM
 │
 ├── data/
-│   ├── labels/                  # Generated label CSVs (committed)
-│   │   ├── per_pair/            # Per-pair window labels and sample metadata
-│   │   ├── window_labels_v1_all.csv
-│   │   ├── samples_metadata_v1_all.csv
-│   │   └── samples_split_v1_all.csv
-│   │
+│   ├── live/
+│   │   └── splits/                  # train/val/test CSVs for live dataset
 │   └── processed/
-│       ├── frames/              # Extracted JPEG frames (224×224, committed)
-│       └── splits/              # train.csv / val.csv / test.csv
+│       └── splits/                  # train/val/test CSVs for drone dataset
 │
 ├── outputs/
-│   ├── checkpoints/             # Trained model weights (committed)
-│   ├── figures/                 # Confusion matrices
-│   └── reports/                 # Classification reports
+│   ├── checkpoints/                 # Trained model weights
+│   ├── figures/                     # Confusion matrices
+│   └── reports/                     # Classification reports
 │
 └── requirements.txt
 ```
 
 ---
 
-## Reproducing the Pipeline
+## Labeling
 
-If you want to re-run the full pipeline from raw data (requires the original `.avi` and `.db` files):
+### Live dataset (per-frame, absolute thresholds)
+Each frame is labeled individually based on the number of YOLO-detected vehicles. Per-camera thresholds calibrated by visual inspection:
 
-```
-data/raw/
-  {pair_id}/
-    intsc_data_{pair_id}.db
-    {pair_id}.avi
-```
+| Camera | low_max | high_min |
+|---|---|---|
+| james_ruse_drive_rosehill | 8 | 20 |
+| hume_highway_bankstown | 6 | 15 |
+| 5_ways_miranda | 7 | 15 |
+| parramatta_road_camperdown | 7 | 17 |
+| king_georges_road_hurstville | 3 | 10 |
+| city_road_newtown | 5 | 15 |
+| anzac_parade_moore_park | 5 | 15 |
+| memorial_drive_towradgi | 5 | 13 |
+| shellharbour_road_warilla | 7 | 15 |
 
-Then run:
-
-```bash
-# Step 1: Inspect dataset structure (optional)
-python src/preprocessing/inspect_dataset.py --pair 771
-
-# Steps 2–4: Full pipeline for all pairs
-python src/preprocessing/process_pairs.py
-
-# Training
-python src/training/train.py --model baseline_cnn
-python src/training/train.py --model mobilenet_v2
-python src/training/train.py --model resnet50
-python src/training/train.py --model efficientnet_b0
-```
-
----
-
-## Labeling Methodology
-
-Congestion labels are derived from trajectory metadata in the SQLite database, not from manual annotation. A composite score is computed per 5-second window:
-
+### Drone dataset (composite score)
 ```
 score = 0.4 × norm_vehicle_count + 0.4 × norm_speed_inv + 0.2 × stop_proxy
 ```
-
-Where `stop_proxy` is the fraction of trajectory rows with speed < 0.5 m/s. Normalisation is percentile-based (5th–95th) within each pair. Score thresholds: Low ≤ 0.33, High ≥ 0.67.
+Score thresholds: Low ≤ 0.33, High ≥ 0.67. Derived from SQLite trajectory annotations.
 
 ---
 
@@ -166,8 +202,6 @@ Where `stop_proxy` is the fraction of trajectory rows with speed < 0.5 m/s. Norm
 | Medium | Extend green phase | +10 s |
 | High | Extend green phase | +20 s |
 
-This is a rule-based prototype only — not a closed-loop or optimisation-based traffic control system.
-
 ---
 
 ## Requirements
@@ -178,6 +212,7 @@ This is a rule-based prototype only — not a closed-loop or optimisation-based 
 
 ---
 
-## Dataset
+## Datasets
 
-[Waterloo Multi-Agent Traffic Dataset](https://uwaterloo.ca/waterloo-intelligent-systems-engineering-lab/datasets) — 14 intersection recording pairs, drone footage at ~29.97 FPS with SQLite trajectory annotations.
+- **Drone:** [Waterloo Multi-Agent Traffic Dataset](https://uwaterloo.ca/waterloo-intelligent-systems-engineering-lab/datasets) — 14 intersection pairs, top-down drone footage with SQLite trajectory annotations
+- **Live:** NSW TfNSW Open Data API — 10 fixed traffic cameras across Sydney and Wollongong, collected April 2026

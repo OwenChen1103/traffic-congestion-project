@@ -1,6 +1,6 @@
 # Development Log — Traffic Congestion Classification
 **Team:** Road Rangers
-**Task:** 3-class congestion classification (Low / Medium / High) from drone intersection footage
+**Task:** 3-class congestion classification (Low / Medium / High) from intersection footage
 
 ---
 
@@ -8,15 +8,16 @@
 1. [Project Setup & Dataset Exploration](#1-project-setup--dataset-exploration)
 2. [Labeling Pipeline](#2-labeling-pipeline)
 3. [Frame Extraction & Splits](#3-frame-extraction--splits)
-4. [Dataset Statistics (Final)](#4-dataset-statistics-final)
+4. [Dataset Statistics (Drone Dataset)](#4-dataset-statistics-drone-dataset)
 5. [Training Configuration](#5-training-configuration)
 6. [Experiment 1 — First Training Run (Overlays Present)](#6-experiment-1--first-training-run-overlays-present)
 7. [Overlay Discovery & Removal](#7-overlay-discovery--removal)
-8. [Experiment 2 — Retrain on Clean Frames (Final Results)](#8-experiment-2--retrain-on-clean-frames-final-results)
+8. [Experiment 2 — Retrain on Clean Frames](#8-experiment-2--retrain-on-clean-frames-final-results)
 9. [Model Comparison: Before vs After Overlay Removal](#9-model-comparison-before-vs-after-overlay-removal)
 10. [Experiment 3 — Ensemble + Test-Time Augmentation](#10-experiment-3--ensemble--test-time-augmentation-no-retraining)
 11. [Experiment 4 — WeightedRandomSampler + Stronger Augmentation (Failed)](#11-experiment-4--weightedrandomsampler--stronger-augmentation-failed-reverted)
-12. [Key Findings & Analysis](#12-key-findings--analysis)
+12. [Experiment 5 — Live NSW Traffic Camera Pipeline](#12-experiment-5--live-nsw-traffic-camera-pipeline)
+13. [Key Findings & Analysis](#13-key-findings--analysis)
 
 ---
 
@@ -98,7 +99,7 @@ score = 0.4 × norm_count + 0.4 × (1 − norm_speed) + 0.2 × stop_proxy
 
 ---
 
-## 4. Dataset Statistics (Final)
+## 4. Dataset Statistics (Drone Dataset)
 
 ### Overall
 | Metric | Value |
@@ -195,12 +196,11 @@ During frame inspection, it was identified that the source `.avi` files contain 
 
 ### Removal method
 **Algorithm:** HSV colour masking + TELEA inpainting
-**Script:** `src/preprocessing/remove_overlays.py`
+**Script:** `src/drone_pipeline/remove_overlays.py`
 
 ```python
 def remove_red_overlay(img_bgr):
     hsv   = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    # Red wraps around hue=0/180 in HSV, so two masks needed
     mask1 = cv2.inRange(hsv, np.array([0,   150, 150]), np.array([8,   255, 255]))
     mask2 = cv2.inRange(hsv, np.array([172, 150, 150]), np.array([180, 255, 255]))
     mask  = cv2.bitwise_or(mask1, mask2)
@@ -220,7 +220,7 @@ def remove_red_overlay(img_bgr):
 
 **Dataset state:** All 2,296 frames with overlays removed via HSV inpainting
 **Training config:** identical to Experiment 1
-**This is the canonical, final result set**
+**This is the canonical, final result set for the drone dataset**
 
 ### Results
 
@@ -233,14 +233,6 @@ def remove_red_overlay(img_bgr):
 
 **→ Best model: MobileNetV2** (highest test acc 78.74% and macro F1 0.766)
 
-### Per-class analysis (MobileNetV2, final)
-| Class | Precision | Recall | F1 | Support |
-|---|---|---|---|---|
-| Low | — | — | 0.650 | ~60 |
-| Medium | — | — | 0.800 | ~196 |
-| High | — | — | 0.847 | ~92 |
-| **Macro avg** | | | **0.766** | 348 |
-
 ---
 
 ## 9. Model Comparison: Before vs After Overlay Removal
@@ -251,14 +243,6 @@ def remove_red_overlay(img_bgr):
 | MobileNetV2 | 0.7615 | 0.7874 | **+0.0259** | 0.7218 | 0.7659 | +0.0441 |
 | ResNet-50 | 0.7845 | 0.7615 | −0.0230 | 0.7615 | 0.7380 | −0.0235 |
 | EfficientNet-B0 | 0.7672 | 0.7759 | +0.0087 | 0.7383 | 0.7503 | +0.0120 |
-
-### Ranking change
-| | Before | After |
-|---|---|---|
-| 1st | ResNet-50 (0.7845) | **MobileNetV2 (0.7874)** |
-| 2nd | Baseline CNN (0.7816) | EfficientNet-B0 (0.7759) |
-| 3rd | EfficientNet-B0 (0.7672) | ResNet-50 (0.7615) |
-| 4th | MobileNetV2 (0.7615) | Baseline CNN (0.7241) |
 
 ---
 
@@ -277,8 +261,6 @@ Each image is augmented 5 ways at inference time; probabilities are averaged:
 4. +5° rotation
 5. −5° rotation
 
-Drone footage is top-down, so horizontal/vertical flips and small rotations are all physically plausible orientations.
-
 ### Results
 
 | Mode | Test Acc | Macro F1 | Low F1 | Med F1 | High F1 |
@@ -289,31 +271,11 @@ Drone footage is top-down, so horizontal/vertical flips and small rotations are 
 
 **→ Ensemble + TTA: 82.18% test accuracy** — +3.44% over best single model, no retraining needed.
 
-### Observations
-- Ensemble alone gives +1.72% over best single model — model diversity reduces variance
-- TTA adds another +1.72% on top — spatial augmentation particularly effective for top-down drone views
-- High F1 improves most (0.847 → 0.893); Low F1 gains are smaller (0.650 → 0.667), consistent with it being the harder minority class
-- Inference is ~20× slower than single model (4 models × 5 TTA variants = 20 forward passes per image)
-
 ---
 
 ## 11. Experiment 4 — WeightedRandomSampler + Stronger Augmentation (Failed, Reverted)
 
 **Goal:** Improve Low class F1 by balancing training batches and applying stronger augmentation.
-
-### Changes made
-
-**WeightedRandomSampler (`train.py`)**
-Replaced `shuffle=True` with `WeightedRandomSampler`, assigning each training sample a weight equal to its class weight (inverse frequency). This forces each training batch to contain roughly equal numbers of Low / Medium / High samples regardless of their natural frequency in the dataset.
-
-**Augmentation upgrades (`congestion_dataset.py`)**
-| Parameter | Before | After |
-|---|---|---|
-| RandomVerticalFlip | — | Added (p=0.5) |
-| RandomRotation | ±10° | ±15° |
-| ColorJitter brightness | 0.2 | 0.3 |
-| ColorJitter contrast | 0.2 | 0.3 |
-| RandomErasing | — | Added (p=0.3, scale 2–15%) |
 
 ### Results
 
@@ -325,62 +287,245 @@ Replaced `shuffle=True` with `WeightedRandomSampler`, assigning each training sa
 | EfficientNet-B0 | 0.7759 | 0.7644 | −0.012 | Minor drop |
 
 ### Failure analysis
-
-The two collapsed models (Baseline CNN, ResNet-50) showed the same pathological pattern:
-
-| Class | Recall (Exp 2) | Recall (Exp 4) |
-|---|---|---|
-| Low | ~0.52–0.63 | **0.97–0.98** |
-| Medium | ~0.71–0.80 | **0.13–0.25** |
-| High | ~0.84–0.93 | **0.96–0.98** |
-
-Models learned to predict almost everything as Low or High, essentially abandoning Medium.
-
-**Root cause — distribution mismatch:**
 WeightedRandomSampler trains on an approximately uniform 33%/33%/33% class distribution, but the test set retains the natural 17%/56%/27% distribution. The model's learned decision boundaries are calibrated for a balanced world that does not exist at inference time. Medium, which accounts for 56% of real traffic states, was systematically underweighted in training relative to its importance at test time.
 
-Class-weighted loss (already in use from Experiment 2) applies a gentler correction — it up-weights the loss from minority class errors without changing the sample frequencies seen per epoch. WeightedRandomSampler changes the fundamental marginal distribution the model trains on, which proved too aggressive here.
-
-**Why MobileNetV2 and EfficientNet-B0 were more resilient:**
-Both use depthwise-separable / MBConv architectures with stronger inductive biases for feature reuse. Baseline CNN (3-block, 619K) and ResNet-50 (plain residual, 23.5M) appear more sensitive to training distribution shift, with the shallow baseline CNN having insufficient capacity to re-generalise under the new regime.
-
-### Decision
-Reverted all changes. Retrained all 4 models with original configuration (Experiment 2 settings). This negative result is documented as it demonstrates that naive oversampling of minority classes can be counter-productive when test distribution is imbalanced, and that class-weighted loss is a more stable correction for this dataset.
+**Decision:** Reverted all changes. This negative result demonstrates that naive oversampling of minority classes can be counter-productive when the test distribution is imbalanced.
 
 ---
 
-## 12. Key Findings & Analysis
+## 12. Experiment 5 — Live NSW Traffic Camera Pipeline
 
-### 12.1 Overlay leakage
-The largest finding of the project. Red bounding boxes baked into source video constituted a spurious cue that models could exploit — higher overlay density = more vehicles = higher congestion. Baseline CNN (a shallow, 3-block network) dropped most after removal, indicating it was learning this shortcut rather than genuine visual features. MobileNetV2's improvement confirms it was being degraded by the overlays rather than helped.
+### Motivation
+The drone dataset (2,296 samples, top-down view, controlled conditions) is limited in diversity. To validate generalisation and build a more realistic system, a second pipeline was built using **live NSW traffic camera footage** via the TfNSW Open Data API.
 
-### 12.2 Low class is consistently hardest
-Across all models and both experiments, Low F1 is always the weakest class (0.52–0.65). Root cause: class imbalance — Low accounts for only 17.3% of samples (398 out of 2,296). Class-weighted loss partially compensates, but a larger Low-class sample pool would further improve this.
+Key differences from the drone dataset:
+- Street-level fixed camera perspective (not top-down drone)
+- Real-world conditions: weather, glare, day/night, varying traffic volumes
+- Labels derived from YOLO vehicle detection (not SQLite annotations)
+- 10 cameras across Sydney and Wollongong covering different road types
 
-### 12.3 MobileNetV2 efficiency
-MobileNetV2 achieves the best test accuracy (78.74%) with only 2.2M parameters — 10× fewer than ResNet-50 (23.5M, 76.15%). This suggests the depthwise-separable convolution structure in MobileNetV2 is well-suited to the spatial patterns present in top-down drone footage at this scale.
+---
 
-### 12.4 EfficientNet-B0 High F1
-EfficientNet-B0 achieves the highest High F1 (0.878), above MobileNetV2 (0.847). If the application were focused solely on detecting severe congestion (e.g., triggering emergency response), EfficientNet-B0 would be preferred. For balanced general-purpose classification, MobileNetV2 wins on macro F1.
+### 12.1 Camera Selection
 
-### 12.5 Why temporal split was not used
-An early consideration was to split temporally (first 70% of frames in time = train). This was rejected because congestion is not uniformly distributed over time within a recording — peak periods cluster together, meaning a temporal split can leave entire congestion levels absent from val/test. Window-level stratified split is more statistically sound for this dataset.
+| Camera | Role | Region | Road Type |
+|---|---|---|---|
+| parramatta_road_camperdown | train | SYD_MET | Urban arterial |
+| hume_highway_bankstown | train | SYD_SOUTH | Wide arterial with median |
+| anzac_parade_moore_park | train | SYD_MET | Wider urban road |
+| james_ruse_drive_rosehill | train | SYD_WEST | 4+ lane highway |
+| princes_highway_st_peters_n | train* | SYD_MET | Excluded (severe glare) |
+| city_road_newtown | train | SYD_MET | Urban tram road |
+| king_georges_road_hurstville | train | SYD_SOUTH | Suburban 2-lane |
+| 5_ways_miranda | train | SYD_SOUTH | 5-way intersection |
+| memorial_drive_towradgi | **test** | REG_WOLLONGONG | Regional highway |
+| shellharbour_road_warilla | **test** | REG_WOLLONGONG | Regional arterial |
 
-### 12.6 Window-level split prevents leakage
-3 frames extracted from the same 5-second window are near-identical (1–2 seconds apart). A frame-level random split would place these near-duplicates across train/test, inflating test accuracy. Keeping all frames from the same window in the same split prevents this.
+\* `princes_highway_st_peters_n` collected but excluded from training — YOLO blind due to severe lens glare.
+
+Wollongong cameras used as test set to evaluate cross-region generalisation (Sydney → Wollongong).
+
+---
+
+### 12.2 Data Collection
+
+**Script:** `src/live_pipeline/collect.py`
+**Method:** TfNSW camera API polled every 15 seconds → 4 frames per 1-minute window per camera
+
+**Collection sessions:**
+| Date | Time | Duration | Notes |
+|---|---|---|---|
+| 3 Apr 2026 (Sun) | ~08:00–18:00 | ~10h | Weekend baseline, low traffic |
+| 7 Apr 2026 (Mon) | 07:30–09:00 | 90 min | Weekday morning peak |
+| 7 Apr 2026 (Mon) | 11:30–13:00 | 90 min | Weekday midday off-peak |
+| 7 Apr 2026 (Mon) | 17:00–18:00 | 60 min | Weekday afternoon peak (delayed start) |
+
+**Total frames collected:** 19,919 across 10 cameras (~500 windows per camera)
+
+---
+
+### 12.3 Vehicle Detection
+
+**Script:** `src/live_pipeline/detect.py`
+**Model:** YOLOv8n (conf threshold = 0.3)
+**Vehicle classes (COCO):** 2=car, 3=motorcycle, 5=bus, 7=truck
+
+**Features per frame:**
+| Feature | Description |
+|---|---|
+| `vehicle_count` | Vehicles detected within valid ROI |
+| `bbox_area_ratio` | Sum of bbox areas / frame area |
+| `bottom_roi_count` | Vehicles in bottom third of frame |
+| `mean_brightness` | Mean pixel intensity (0–255), used for nighttime filtering |
+
+#### Camera ROI and Exclusion Zones
+
+**Problem encountered:** `5_ways_miranda` has a car dealership visible in the frame. Parked dealership vehicles were being counted as road traffic, inflating vehicle counts and polluting labels.
+
+**Solution attempts:**
+1. X-axis cutoff at `x < 0.28` — insufficient, dealership still counted
+2. X-axis cutoff at `x < 0.38` — too aggressive, legitimate road vehicles on left lane were excluded (visible as red dashed boxes in manual review tool)
+3. **Final solution:** Corner exclusion zone `(x < 0.28, y < 0.55)` — excludes only the top-left rectangle where the dealership sits, preserving left-lane road vehicles
+
+```python
+CAMERA_EXCLUDE = {
+    "5_ways_miranda": [(0.0, 0.0, 0.28, 0.55)],  # top-left corner = dealership
+}
+```
+
+#### Filters applied
+- **Nighttime filter:** frames with `mean_brightness < 80` excluded
+- **Time filter:** only 06:00–18:00 retained (removes pre-dawn and post-dusk)
+- After filters: **15,881 / 19,919 frames** retained (79.7%)
+
+---
+
+### 12.4 Labeling Design Decision: Per-Frame vs Window-Average
+
+**Initial approach:** Window-level averaging (same as drone pipeline)
+- Aggregate 4 frames into window features → assign one label per window → all 4 frames share that label
+
+**Problem discovered:** Label-image mismatch. A window could have `avg_vehicle_count = 5` (low) but contain a frame with `vehicle_count = 16`. The review tool showed `LOW v=16` — visually wrong and misleading for the CNN which sees only individual frames.
+
+**Root cause:** A CNN image classifier sees one frame at inference time. Its input-output pair should be (this frame's pixels) → (this frame's congestion). Window averaging is a temporal construct that doesn't align with the model's view of the world.
+
+**Decision:** Switch to **per-frame labeling** — apply camera thresholds directly to each frame's `vehicle_count`.
+
+```
+if vehicle_count ≤ low_max  → "low"
+if vehicle_count ≥ high_min → "high"
+else                        → "medium"
+```
+
+This ensures the label assigned to each training image reflects what is actually visible in that image.
+
+---
+
+### 12.5 Per-Camera Threshold Calibration
+
+Thresholds set by visual inspection using `src/live_pipeline/manual_label.py` — a camera review tool that shows sample LOW / MEDIUM / HIGH frames per camera with YOLO bounding boxes and vehicle counts.
+
+| Camera | low_max | high_min | Notes |
+|---|---|---|---|
+| james_ruse_drive_rosehill | 8 | 20 | 4+ lane highway, high capacity |
+| hume_highway_bankstown | 6 | 15 | Wide arterial |
+| 5_ways_miranda | 7 | 15 | ROI-corrected counts |
+| parramatta_road_camperdown | 7 | 17 | Urban arterial |
+| king_georges_road_hurstville | 3 | 10 | Suburban 2-lane, low capacity |
+| city_road_newtown | 5 | 15 | Urban tram road |
+| anzac_parade_moore_park | 5 | 15 | Wider urban road |
+| memorial_drive_towradgi | 5 | 13 | Regional highway |
+| shellharbour_road_warilla | 7 | 15 | Regional arterial |
+| princes_highway_st_peters_n | 5 | 15 | Excluded from train |
+
+**Known issue:** `city_road_newtown` never reached `high_min=15` in the collected data — 0 high frames. This camera appears to have low baseline traffic volume. Awaiting more weekday peak-hour data to confirm.
+
+---
+
+### 12.6 Dataset Statistics (Live Dataset, Final)
+
+**Total frames:** 19,919
+**After filters:** 15,881
+**Train cameras:** 8 (excluding princes_highway)
+**Test cameras:** 2 (Wollongong region)
+
+| Split | Frames | Low | Medium | High |
+|---|---|---|---|---|
+| Train | 8,507 | 2,288 | 3,983 | 2,236 |
+| Val | 1,505 | 412 | 702 | 391 |
+| Test | 3,894 | 1,150 | 1,510 | 1,234 |
+
+Overall distribution after thresholding: low 31% / med 43% / high 26% — substantially more balanced than the drone dataset (17% / 56% / 27%).
+
+---
+
+### 12.7 Split Strategy
+
+Train cameras are split **window-level** (85% train / 15% val top-up) to avoid leakage — all frames from a window stay together. Majority label per window used for stratification. Test cameras are never seen during training, providing a true cross-camera generalisation test.
+
+---
+
+### 12.8 Training & Results
+
+All 4 models trained from scratch on the live dataset using the same hyperparameter configuration as Experiments 1–2. Class-weighted CrossEntropyLoss applied.
+
+#### Bug fix: evaluate.py split directory
+`evaluate.py` was hardcoded to read from `data/processed/splits` (drone dataset). When evaluating live-trained models without `--split-dir`, test accuracy appeared as ~40% (model trained on live data, evaluated on drone data). Fixed by adding `--split-dir` argument.
+
+```bash
+python src/evaluation/evaluate.py --model efficientnet_b0 --split-dir data/live/splits
+```
+
+#### Results
+
+| Model | Test Acc | Macro F1 | Low F1 | Med F1 | High F1 |
+|---|---|---|---|---|---|
+| Baseline CNN | 0.7201 | 0.7246 | 0.822 | 0.636 | 0.716 |
+| MobileNetV2 | 0.8143 | 0.8204 | 0.880 | 0.764 | 0.818 |
+| ResNet-50 | 0.7686 | 0.7778 | 0.845 | 0.715 | 0.773 |
+| EfficientNet-B0 | 0.8290 | 0.8340 | 0.899 | 0.768 | 0.835 |
+| Ensemble (4 models) | 0.8249 | 0.8308 | 0.891 | 0.776 | 0.825 |
+| **EfficientNet-B0 + TTA** ⚡ | **0.8331** | **0.8375** | 0.898 | 0.774 | **0.841** |
+
+**→ Best model: EfficientNet-B0 + TTA, 83.31% test accuracy**
+
+#### Key observations
+- EfficientNet-B0 is the best single model — reversed from the drone dataset where MobileNetV2 led
+- Ensemble does not outperform EfficientNet-B0 alone; Baseline CNN and ResNet50 drag the average down
+- TTA gives +0.4% consistent improvement across all classes
+- Medium remains the hardest class (lowest F1) — boundary with Low and High is inherently ambiguous
+- High class dramatically improved: from 15% of train data (weekend-only collection) to 26% after adding weekday peak sessions. Precision improved from 0.678 → 0.809 once more high samples were available.
+
+---
+
+### 12.9 Bugs & Issues Encountered
+
+| Issue | Root Cause | Fix |
+|---|---|---|
+| `evaluate.py` showing 40% on live-trained model | Default split dir pointed to drone dataset splits | Added `--split-dir` CLI argument |
+| `manual_label.py` KeyError: `image_path` | Frame labels CSV uses `file_path`, old code used `image_path` | Renamed all references |
+| YOLO boxes showing dealership vehicles despite ROI | `manual_label.py` drew all boxes without applying ROI mask | Added ROI-aware box drawing: green=counted, red dashed=excluded |
+| 5_ways_miranda x-axis ROI too aggressive | Cutoff at 38% excluded left-lane road vehicles | Replaced with corner exclusion zone (x<0.28, y<0.55) |
+| Window-average labels mismatching visible frame content | Temporal averaging obscures per-frame reality | Switched to per-frame labeling |
+| `city_road_newtown` high=0 | high_min=15 exceeds this camera's observed traffic volume | Awaiting more weekday peak data |
+
+---
+
+## 13. Key Findings & Analysis
+
+### 13.1 Overlay leakage (drone dataset)
+The largest finding from the drone pipeline. Red bounding boxes baked into source video constituted a spurious cue. Baseline CNN dropped most after removal, indicating it had learned to count red pixels rather than visual traffic patterns.
+
+### 13.2 Per-frame labeling is more appropriate for CNNs
+Window-level averaging (designed for time-series analysis) does not align with how a CNN classifier works. A CNN receives one image and outputs one prediction — the label should describe what is visible in that image, not the temporal average of a surrounding window.
+
+### 13.3 Real-world camera data is harder to label than drone data
+Drone data has SQLite trajectory annotations with precise vehicle counts and speeds. Live camera data requires YOLO detection as a proxy, which introduces its own errors (missed vehicles, false positives, viewpoint-dependent detection rates). Per-camera threshold calibration by visual inspection is necessary to produce clean labels.
+
+### 13.4 EfficientNet-B0 generalises best to street-level cameras
+On the drone dataset, MobileNetV2 led (78.7%). On the live camera dataset, EfficientNet-B0 leads (83.3%). This suggests EfficientNet's compound scaling and squeeze-excitation attention is better suited to the more variable, street-level visual conditions.
+
+### 13.5 Class balance matters more than model architecture
+The High class accuracy gap between weekend-only collection (18 high frames for 5_ways_miranda, precision 0.678) and weekday+weekend collection (756 high frames, precision 0.809) shows that data distribution is the primary driver of class-specific performance.
+
+### 13.6 Ensemble only helps when constituent models are diverse and comparably strong
+On the live dataset, including Baseline CNN and ResNet50 in the ensemble pulled accuracy below the EfficientNet-B0 single-model result. Ensemble is most effective when all constituent models are near the performance ceiling.
+
+### 13.7 Window-level split prevents leakage in both pipelines
+Both the drone pipeline (3 frames/window) and live pipeline (4 frames/window) maintain window integrity during train/val/test splitting. Near-identical frames from the same temporal window should not appear in both train and test.
 
 ---
 
 ## Appendix: Model Architectures
 
-| Model | Type | Key layers | GradCAM target | Spatial resolution |
-|---|---|---|---|---|
-| Baseline CNN | Custom 3-block CNN | Conv→BN→ReLU×3, GAP, FC | `features[-1]` | 28×28 |
-| MobileNetV2 | Depthwise-separable CNN | 19 bottleneck blocks, GAP | `features[13]` | 14×14 |
-| ResNet-50 | Residual CNN | 4 residual stages, GAP | `layer3[-1]` | 14×14 |
-| EfficientNet-B0 | Compound-scaled CNN | MBConv blocks, SE | `features[5]` | 14×14 |
+| Model | Type | Key layers | Params |
+|---|---|---|---|
+| Baseline CNN | Custom 3-block CNN | Conv→BN→ReLU×3, GAP, FC | 619K |
+| MobileNetV2 | Depthwise-separable CNN | 19 bottleneck blocks, GAP | 2.2M |
+| ResNet-50 | Residual CNN | 4 residual stages, GAP | 23.5M |
+| EfficientNet-B0 | Compound-scaled CNN | MBConv blocks, SE attention | 4.0M |
 
-All transfer models initialised with ImageNet pretrained weights; full backbone fine-tuned (no frozen layers).
+All transfer models initialised with ImageNet pretrained weights; full backbone fine-tuned.
 
 ---
 
@@ -388,20 +533,27 @@ All transfer models initialised with ImageNet pretrained weights; full backbone 
 
 ```
 src/
-├── preprocessing/
+├── drone_pipeline/             # Drone dataset preprocessing pipeline
 │   ├── discover_pairs.py       # Scans data/raw/ for valid (video + db) pairs
-│   ├── generate_labels.py      # Step 2: congestion labels from SQLite per pair
-│   ├── extract_frames.py       # Step 3: JPEG frame extraction (3/window, 224×224)
-│   ├── build_splits.py         # Step 4: window-stratified 70/15/15 split
+│   ├── generate_labels.py      # Congestion labels from SQLite per pair
+│   ├── extract_frames.py       # JPEG frame extraction (3/window, 224×224)
+│   ├── build_splits.py         # Window-stratified 70/15/15 split
 │   ├── process_pairs.py        # Orchestrator: runs steps 2–4 for all 14 pairs
 │   └── remove_overlays.py      # HSV masking + TELEA inpainting (run once)
+├── live_pipeline/              # Live NSW camera pipeline
+│   ├── collect.py              # TfNSW API poller (15s interval, 10 cameras)
+│   ├── detect.py               # YOLOv8n vehicle detection + feature extraction
+│   ├── label.py                # Per-frame congestion labeling (absolute thresholds)
+│   ├── build_dataset.py        # Window-level split → train/val/test CSVs
+│   ├── manual_label.py         # Visual review tool (ROI-aware YOLO overlay)
+│   └── preview_predictions.py  # Model prediction preview with confidence + boxes
 ├── models/
-│   ├── baseline_cnn.py         # Custom 3-block CNN
-│   └── transfer_models.py      # MobileNetV2, ResNet-50, EfficientNet-B0
+│   ├── baseline_cnn.py
+│   └── transfer_models.py
 ├── training/
-│   └── train.py                # Training loop, cosine LR, class weighting, checkpoint
+│   └── train.py
 ├── evaluation/
-│   └── evaluate.py             # Test set eval, confusion matrix, classification report
+│   └── evaluate.py             # Supports --split-dir for live/drone dataset switching
 └── gui/
-    └── app.py                  # Gradio demo: classify + GradCAM + compare models
+    └── app.py
 ```
