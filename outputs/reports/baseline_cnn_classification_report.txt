@@ -2,10 +2,10 @@ Mode: baseline_cnn
 
               precision    recall  f1-score   support
 
-         low     0.4857    0.8500    0.6182        60
-      medium     0.8722    0.5949    0.7073       195
-        high     0.7727    0.9140    0.8374        93
+         low     0.7509    0.9070    0.8216      1150
+      medium     0.6501    0.6225    0.6360      1510
+        high     0.7753    0.6653    0.7161      1234
 
-    accuracy                         0.7241       348
-   macro avg     0.7102    0.7863    0.7210       348
-weighted avg     0.7790    0.7241    0.7267       348
+    accuracy                         0.7201      3894
+   macro avg     0.7254    0.7316    0.7246      3894
+weighted avg     0.7195    0.7201    0.7162      3894

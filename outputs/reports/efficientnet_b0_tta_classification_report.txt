@@ -1,0 +1,11 @@
+Mode: efficientnet_b0_tta
+
+              precision    recall  f1-score   support
+
+         low     0.8925    0.9026    0.8975      1150
+      medium     0.8152    0.7364    0.7738      1510
+        high     0.8003    0.8865    0.8412      1234
+
+    accuracy                         0.8331      3894
+   macro avg     0.8360    0.8419    0.8375      3894
+weighted avg     0.8333    0.8331    0.8317      3894

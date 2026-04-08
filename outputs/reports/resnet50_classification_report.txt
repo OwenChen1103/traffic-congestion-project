@@ -2,10 +2,10 @@ Mode: resnet50
 
               precision    recall  f1-score   support
 
-         low     0.5672    0.6333    0.5984        60
-      medium     0.8256    0.7282    0.7738       195
-        high     0.7798    0.9140    0.8416        93
+         low     0.9591    0.7548    0.8448      1150
+      medium     0.6855    0.7477    0.7152      1510
+        high     0.7422    0.8071    0.7733      1234
 
-    accuracy                         0.7615       348
-   macro avg     0.7242    0.7585    0.7380       348
-weighted avg     0.7688    0.7615    0.7617       348
+    accuracy                         0.7686      3894
+   macro avg     0.7956    0.7699    0.7778      3894
+weighted avg     0.7843    0.7686    0.7719      3894
