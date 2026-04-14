@@ -355,7 +355,8 @@ def get_yolo():
             return _yolo_model if _yolo_model is not False else None
         try:
             from ultralytics import YOLO
-            _yolo_model = YOLO("yolov8n.pt")
+            _yolo_model = YOLO("yolov8s.pt")
+            _yolo_model.conf = 0.2
             print("[GUI] YOLO loaded")
         except Exception as e:
             print("[GUI] YOLO unavailable: {}".format(e))
