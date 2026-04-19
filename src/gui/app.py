@@ -355,8 +355,8 @@ def get_yolo():
             return _yolo_model if _yolo_model is not False else None
         try:
             from ultralytics import YOLO
-            _yolo_model = YOLO("yolov8s.pt")
-            _yolo_model.conf = 0.2
+            _yolo_model = YOLO("yolov8m.pt")
+            _yolo_model.conf = 0.15
             print("[GUI] YOLO loaded")
         except Exception as e:
             print("[GUI] YOLO unavailable: {}".format(e))
@@ -375,7 +375,7 @@ def yolo_detection_image(image_pil, camera_name=None):
     img_np = np.array(image_pil.convert("RGB"))
     h, w   = img_np.shape[:2]
 
-    results = yolo(img_np, conf=0.3, verbose=False)
+    results = yolo(img_np, conf=0.15, imgsz=1280, verbose=False)
     exclude_zones = CAMERA_EXCLUDE.get(camera_name, []) if camera_name else []
 
     annotated = img_np.copy()
@@ -1015,12 +1015,44 @@ def shuffle_examples():
 
 def shuffle_sequence():
     # type: () -> tuple
-    """Pick 3 LOW + 3 MEDIUM + 3 HIGH frames in order → simulates congestion building up."""
+    """Pick 3 LOW + 3 MEDIUM + 3 HIGH from the SAME camera — shows real congestion progression."""
     from PIL import Image as PILImage
+    from pathlib import Path as _Path
+
+    # Group paths by camera_id then label
+    # Expected path format: data/live/raw/{camera_id}/{window}/frame_xx.jpg
+    cam_index = {}  # type: dict
+    for lbl, paths in DATASET_INDEX.items():
+        for p in paths:
+            parts = _Path(p).parts
+            try:
+                cam_id = parts[3]   # data / live / raw / {camera_id} / ...
+            except IndexError:
+                continue
+            if cam_id not in cam_index:
+                cam_index[cam_id] = {"low": [], "medium": [], "high": []}
+            cam_index[cam_id][lbl].append(p)
+
+    # Keep only cameras that have all 3 classes
+    valid = [cam for cam, lbls in cam_index.items()
+             if all(len(lbls[l]) >= 1 for l in ["low", "medium", "high"])]
+
+    if not valid:
+        # Fallback: cross-camera if no single camera has all 3
+        imgs = []
+        for lbl in ["low", "medium", "high"]:
+            paths = DATASET_INDEX.get(lbl, [])
+            for p in random.sample(paths, min(3, len(paths))):
+                try:
+                    imgs.append(PILImage.open(PROJECT_ROOT / p).convert("RGB"))
+                except Exception:
+                    pass
+        return imgs, imgs
+
+    cam = random.choice(valid)
     imgs = []
     for lbl in ["low", "medium", "high"]:
-        paths = DATASET_INDEX.get(lbl, [])
-        picks = random.sample(paths, min(3, len(paths))) if paths else []
+        picks = random.sample(cam_index[cam][lbl], min(3, len(cam_index[cam][lbl])))
         for p in picks:
             try:
                 imgs.append(PILImage.open(PROJECT_ROOT / p).convert("RGB"))
@@ -1504,9 +1536,10 @@ def build_app():
                         gr.HTML("<div style='font-size:0.82em;font-weight:600;color:#e6edf3;"
                                 "margin-bottom:6px;'>Pre-built Sequence</div>"
                                 "<div style='font-size:0.76em;color:#8b949e;margin-bottom:8px;'>"
-                                "3 × Low → 3 × Medium → 3 × High — click Shuffle for a new set</div>")
+                                "3 × Low → 3 × Medium → 3 × High from the <b style='color:#e6edf3;'>same camera</b> "
+                                "— shows real congestion progression at one location. Shuffle for a new set.</div>")
                         seq_preset_gallery = gr.Gallery(
-                            rows=1, columns=9, height=100,
+                            rows=3, columns=3, height=320,
                             show_label=False, elem_classes=["example-gallery"],
                         )
                         seq_preset_state = gr.State([])
