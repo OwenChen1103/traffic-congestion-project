@@ -2,6 +2,15 @@
 
 Visual traffic congestion classification from intersection footage, with a rule-based signal timing recommendation prototype. Three congestion levels are predicted — **Low**, **Medium**, and **High** — using CNN-based image classifiers trained on two datasets: the Waterloo Multi-Agent Traffic Dataset (drone footage) and live NSW traffic camera streams.
 
+![Gradio demo — live feed tab with YOLO detections, congestion prediction, confidence scores and signal recommendation](docs/images/gui_live_feed.jpg)
+
+> **UTS 42028 Deep Learning & CNN — group project (Road Rangers):** Chun-Chung (Owen) Chen, Seungwoo Kim, Shriram Raveendran.
+> **Owen's role:** technical implementation of the full project — data pipelines, YOLOv8 vehicle-detection labelling, all four CNN models, the ensemble and test-time augmentation pipeline, Grad-CAM integration, and the 7-tab Gradio GUI.
+
+### How it works
+
+![End-to-end workflow: TfNSW API → frame collection → filtering → YOLOv8 detection → labelling → region-based split → CNN training → evaluation → Gradio GUI](docs/images/workflow.jpg)
+
 ---
 
 ## Results
@@ -20,6 +29,15 @@ Visual traffic congestion classification from intersection footage, with a rule-
 | **EfficientNet-B0 + TTA** ⚡ | **0.8331** | **0.8375** | 0.898 | 0.774 | **0.841** |
 
 **Best model: EfficientNet-B0 + TTA — 83.31% test accuracy**
+
+<p>
+  <img src="docs/images/accuracy_comparison.png" width="49%" alt="Train / validation / test accuracy of four CNN architectures">
+  <img src="docs/images/f1_comparison.png" width="49%" alt="Per-class and macro F1 of four CNN architectures">
+</p>
+
+<p align="center">
+  <img src="outputs/figures/efficientnet_b0_tta_confusion_matrix.png" width="45%" alt="Confusion matrix — EfficientNet-B0 + TTA">
+</p>
 
 19,919 frames collected across 3 sessions (weekend + weekday morning/midday/afternoon peak). 15,881 retained after brightness and nighttime filters. Window-level stratified split (4 frames/window kept together).
 
@@ -173,6 +191,8 @@ traffic-congestion-project/
 
 ### Live dataset (per-frame, absolute thresholds)
 Each frame is labeled individually based on the number of YOLO-detected vehicles. Per-camera thresholds calibrated by visual inspection:
+
+![Example LOW / MEDIUM / HIGH frames from the same camera](docs/images/sample_frames.jpg)
 
 | Camera | low_max | high_min |
 |---|---|---|
